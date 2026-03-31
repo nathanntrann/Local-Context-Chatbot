@@ -1,0 +1,11 @@
+services:
+  inspect-assist:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data/images:/app/data/images:ro
+      - ./knowledge:/app/knowledge:ro
+    restart: unless-stopped
