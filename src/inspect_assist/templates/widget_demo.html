@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSI — Thermal Seal Inspection</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #1b1e2b;
+            color: #d4d6e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Top nav bar ── */
+        .topbar {
+            background: #141722;
+            border-bottom: 1px solid #2a2d3e;
+            padding: 0 20px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .topbar-left .app-icon {
+            width: 28px; height: 28px;
+            background: linear-gradient(135deg, #ff6b6b, #ffa94d);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 700; color: white;
+        }
+        .topbar-left h1 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #e4e6f0;
+            letter-spacing: 0.3px;
+        }
+        .topbar-left h1 span { color: #8b8fa4; font-weight: 400; }
+        .topbar-nav {
+            display: flex; gap: 2px;
+        }
+        .topbar-nav a {
+            color: #8b8fa4;
+            text-decoration: none;
+            font-size: 13px;
+            padding: 6px 14px;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .topbar-nav a.active, .topbar-nav a:hover {
+            background: #242736;
+            color: #e4e6f0;
+        }
+        .topbar-right {
+            display: flex; align-items: center; gap: 14px;
+        }
+        .topbar-right .status-dot {
+            width: 8px; height: 8px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .topbar-right .status-text {
+            font-size: 12px; color: #4ecdc4;
+        }
+        .topbar-right .user-avatar {
+            width: 30px; height: 30px;
+            background: #3d4058;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; color: #8b8fa4;
+        }
+
+        /* ── Main layout ── */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 220px;
+            background: #161925;
+            border-right: 1px solid #2a2d3e;
+            padding: 16px 0;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-section {
+            padding: 0 14px;
+            margin-bottom: 20px;
+        }
+        .sidebar-section h3 {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #5a5d72;
+            margin-bottom: 8px;
+        }
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #8b8fa4;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .sidebar-item:hover { background: #1e2132; color: #d4d6e0; }
+        .sidebar-item.active { background: #242736; color: #e4e6f0; }
+        .sidebar-item .icon { font-size: 15px; width: 20px; text-align: center; }
+        .sidebar-item .badge {
+            margin-left: auto;
+            background: #ff6b6b;
+            color: white;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .sidebar-stats {
+            margin-top: auto;
+            padding: 14px;
+            border-top: 1px solid #2a2d3e;
+        }
+        .sidebar-stats .stat-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        .sidebar-stats .stat-row .label { color: #5a5d72; }
+        .sidebar-stats .stat-row .val { color: #d4d6e0; font-weight: 500; }
+
+        /* ── Content area ── */
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Toolbar ── */
+        .toolbar {
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #2a2d3e;
+            flex-shrink: 0;
+        }
+        .toolbar-left {
+            display: flex; align-items: center; gap: 12px;
+        }
+        .toolbar h2 {
+            font-size: 16px; font-weight: 600; color: #e4e6f0;
+        }
+        .toolbar .filter-pills {
+            display: flex; gap: 4px;
+        }
+        .toolbar .pill {
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 12px;
+            border: 1px solid #2a2d3e;
+            background: transparent;
+            color: #8b8fa4;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .toolbar .pill.active { background: #242736; color: #e4e6f0; border-color: #3d4058; }
+        .toolbar .pill:hover { border-color: #3d4058; }
+        .toolbar-right {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .toolbar-right .search-box {
+            background: #242736;
+            border: 1px solid #2a2d3e;
+            border-radius: 6px;
+            padding: 5px 10px;
+            display: flex; align-items: center; gap: 6px;
+            width: 200px;
+        }
+        .toolbar-right .search-box input {
+            background: none; border: none; color: #d4d6e0; font-size: 12px; outline: none;
+            width: 100%;
+        }
+        .toolbar-right .search-box .icon { color: #5a5d72; font-size: 13px; }
+
+        /* ── Grid of image cards ── */
+        .image-grid {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+            align-content: start;
+        }
+        .img-card {
+            background: #1e2132;
+            border: 1px solid #2a2d3e;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .img-card:hover {
+            border-color: #3d4058;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .img-card .thumb {
+            height: 130px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .img-card .thumb .gradient {
+            position: absolute; inset: 0;
+            border-radius: 0;
+        }
+        .img-card .thumb .temp-label {
+            position: absolute;
+            bottom: 6px;
+            right: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.6);
+        }
+        .img-card .info {
+            padding: 10px 12px;
+        }
+        .img-card .info .filename {
+            font-size: 12px;
+            color: #d4d6e0;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .img-card .info .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .img-card .info .meta .timestamp {
+            font-size: 11px;
+            color: #5a5d72;
+        }
+        .img-card .info .meta .label-tag {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 100px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .label-pass { background: rgba(78,205,196,0.15); color: #4ecdc4; }
+        .label-fault { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+        .label-review { background: rgba(255,169,77,0.15); color: #ffa94d; }
+
+        /* ── Bottom status bar ── */
+        .statusbar {
+            background: #141722;
+            border-top: 1px solid #2a2d3e;
+            padding: 4px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #5a5d72;
+            flex-shrink: 0;
+            height: 28px;
+        }
+        .statusbar .left { display: flex; gap: 16px; }
+        .statusbar .right { display: flex; gap: 16px; }
+    </style>
+</head>
+<body>
+
+    <!-- ── Top navigation bar ── -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="app-icon">T</div>
+            <h1>TSI <span>Thermal Seal Inspection</span></h1>
+        </div>
+        <nav class="topbar-nav">
+            <a href="#" class="active">Inspection</a>
+            <a href="#">Reports</a>
+            <a href="#">Settings</a>
+            <a href="#">Calibration</a>
+        </nav>
+        <div class="topbar-right">
+            <div class="status-dot"></div>
+            <span class="status-text">Camera Online</span>
+            <div class="user-avatar">NT</div>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- ── Left sidebar ── -->
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <h3>Views</h3>
+                <div class="sidebar-item active">
+                    <span class="icon">📋</span> All Images
+                </div>
+                <div class="sidebar-item">
+                    <span class="icon">✅</span> Pass
+                </div>
+                <div class="sidebar-item">
+                    <span class="icon">❌</span> Fault
+                    <span class="badge">71</span>
+                </div>
+                <div class="sidebar-item">
+                    <span class="icon">⏳</span> Pending Review
+                    <span class="badge">12</span>
+                </div>
+            </div>
+            <div class="sidebar-section">
+                <h3>Batches</h3>
+                <div class="sidebar-item">
+                    <span class="icon">📦</span> Batch 2026-04-02
+                </div>
+                <div class="sidebar-item">
+                    <span class="icon">📦</span> Batch 2026-04-01
+                </div>
+                <div class="sidebar-item">
+                    <span class="icon">📦</span> Batch 2026-03-31
+                </div>
+            </div>
+            <div class="sidebar-stats">
+                <div class="stat-row">
+                    <span class="label">Total images</span>
+                    <span class="val">1,247</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Pass rate</span>
+                    <span class="val" style="color: #4ecdc4;">94.3%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Avg temp</span>
+                    <span class="val">182.4°F</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Uptime</span>
+                    <span class="val">99.7%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Main content ── -->
+        <div class="content">
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <h2>Inspection Queue</h2>
+                    <div class="filter-pills">
+                        <button class="pill active">All</button>
+                        <button class="pill">Today</button>
+                        <button class="pill">Flagged</button>
+                    </div>
+                </div>
+                <div class="toolbar-right">
+                    <div class="search-box">
+                        <span class="icon">🔍</span>
+                        <input type="text" placeholder="Search images...">
+                    </div>
+                </div>
+            </div>
+
+            <div class="image-grid" id="imageGrid">
+                <!-- Cards populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Status bar ── -->
+    <div class="statusbar">
+        <div class="left">
+            <span>Line 3 — Station A</span>
+            <span>Camera: FLIR A700 (640×480)</span>
+            <span>Last capture: 2 sec ago</span>
+        </div>
+        <div class="right">
+            <span>Model: via InspectAssist</span>
+            <span>Inference: 34ms</span>
+            <span>GPU: 42°C</span>
+        </div>
+    </div>
+
+    <!-- The ONLY line needed to add InspectAssist to any app -->
+    <script src="/static/widget.js"></script>
+
+    <script>
+    // Generate fake thermal image cards for realism
+    (function() {
+        const grid = document.getElementById('imageGrid');
+        const labels = ['PASS','PASS','PASS','PASS','PASS','PASS','PASS','PASS','FAULT','FAULT','PASS','REVIEW','PASS','PASS','FAULT','PASS','PASS','PASS','PASS','REVIEW'];
+        const temps = [178,182,185,176,190,183,195,181,201,172,184,188,179,186,168,183,180,177,185,192];
+        const hues = { PASS: [160,70], FAULT: [0,70], REVIEW: [30,60] };
+
+        labels.forEach((lbl, i) => {
+            const card = document.createElement('div');
+            card.className = 'img-card';
+            const [h, s] = hues[lbl];
+            const t = temps[i];
+            // Thermal gradient simulation
+            const g1 = `hsl(${h}, ${s}%, ${20 + Math.random()*10}%)`;
+            const g2 = `hsl(${h + 20}, ${s + 10}%, ${35 + Math.random()*15}%)`;
+            const g3 = `hsl(${h + 40}, ${s}%, ${25 + Math.random()*10}%)`;
+            const angle = Math.floor(Math.random() * 360);
+            const cls = lbl === 'PASS' ? 'label-pass' : lbl === 'FAULT' ? 'label-fault' : 'label-review';
+
+            const hour = String(8 + Math.floor(i / 3)).padStart(2,'0');
+            const min = String((i * 7) % 60).padStart(2,'0');
+
+            card.innerHTML = `
+                <div class="thumb">
+                    <div class="gradient" style="background: radial-gradient(ellipse at ${30+Math.random()*40}% ${30+Math.random()*40}%, ${g2}, ${g1} 60%, ${g3});"></div>
+                    <span class="temp-label" style="color:${lbl==='FAULT'?'#ff6b6b':'#4ecdc4'}">${t}°F</span>
+                </div>
+                <div class="info">
+                    <div class="filename">seal_${String(1200 + i).padStart(4,'0')}_L3A.tiff</div>
+                    <div class="meta">
+                        <span class="timestamp">${hour}:${min}</span>
+                        <span class="label-tag ${cls}">${lbl}</span>
+                    </div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    })();
+    </script>
+</body>
+</html>

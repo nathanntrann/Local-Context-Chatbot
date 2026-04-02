@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -17,7 +18,7 @@ from inspect_assist.llm import (
 
 
 class OpenAIProvider:
-    """Unified provider for both OpenAI and Azure OpenAI APIs."""
+    """Unified provider for OpenAI, Azure OpenAI, and Ollama APIs."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -28,9 +29,23 @@ class OpenAIProvider:
                 api_version=settings.azure_openai_api_version,
             )
             self._model = settings.azure_openai_deployment
+        elif settings.llm_provider == LLMProvider.OLLAMA:
+            self._client = AsyncOpenAI(
+                base_url=settings.ollama_base_url,
+                api_key="ollama",  # Ollama doesn't need a real key
+            )
+            self._model = settings.ollama_model
         else:
             self._client = AsyncOpenAI(api_key=settings.openai_api_key)
             self._model = settings.openai_model
+
+    @property
+    def provider_name(self) -> str:
+        return self._settings.llm_provider.value
+
+    @property
+    def data_locality(self) -> str:
+        return "local" if self._settings.llm_provider == LLMProvider.OLLAMA else "cloud"
 
     async def chat(
         self,
@@ -76,6 +91,77 @@ class OpenAIProvider:
             content=msg.content or "",
             tool_calls=tool_calls,
             usage=usage_dict,
+        )
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.2,
+    ) -> AsyncIterator[str | LLMResponse]:
+        """Stream tokens as strings, then yield a final LLMResponse with tool calls (if any)."""
+        api_messages = [self._convert_message(m) for m in messages]
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": api_messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        response = await self._client.chat.completions.create(**kwargs)
+
+        content_buffer = ""
+        tool_calls_buffer: dict[int, dict[str, str]] = {}
+
+        async for chunk in response:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            # Text content
+            if delta.content:
+                content_buffer += delta.content
+                yield delta.content
+
+            # Accumulate tool call deltas
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_buffer:
+                        tool_calls_buffer[idx] = {
+                            "id": "",
+                            "function_name": "",
+                            "arguments": "",
+                        }
+                    if tc.id:
+                        tool_calls_buffer[idx]["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        tool_calls_buffer[idx]["function_name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        tool_calls_buffer[idx]["arguments"] += tc.function.arguments
+
+        # Build final tool call list
+        tool_calls: list[ToolCallRequest] = []
+        for idx in sorted(tool_calls_buffer.keys()):
+            buf = tool_calls_buffer[idx]
+            tool_calls.append(
+                ToolCallRequest(
+                    id=buf["id"],
+                    function_name=buf["function_name"],
+                    arguments_json=buf["arguments"],
+                )
+            )
+
+        # Final yield: complete response summary
+        yield LLMResponse(
+            content=content_buffer,
+            tool_calls=tool_calls,
+            usage={},  # streaming doesn't return usage in chunks
         )
 
     @staticmethod

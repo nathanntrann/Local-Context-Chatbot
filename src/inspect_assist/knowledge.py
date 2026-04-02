@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import structlog
 import yaml
+
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -28,6 +34,32 @@ class KnowledgeArticle:
             "tags": self.tags,
         }
 
+    def embedding_text(self) -> str:
+        """Text representation used for embedding."""
+        parts = [self.title, self.category]
+        if self.tags:
+            parts.append(", ".join(self.tags))
+        parts.append(self.content[:2000])
+        return "\n".join(parts)
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors (pure Python)."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _content_hash(articles: list[KnowledgeArticle]) -> str:
+    """Hash article contents to detect changes (invalidates embedding cache)."""
+    h = hashlib.sha256()
+    for a in sorted(articles, key=lambda x: x.slug):
+        h.update(a.embedding_text().encode("utf-8"))
+    return h.hexdigest()[:16]
+
 
 class KnowledgeEngine:
     """Loads and searches Markdown knowledge articles with YAML frontmatter."""
@@ -36,6 +68,12 @@ class KnowledgeEngine:
         self._root = knowledge_path
         self._articles: list[KnowledgeArticle] = []
         self._loaded = False
+        # Vector search state
+        self._embeddings: dict[str, list[float]] = {}  # slug → embedding
+        self._embeddings_ready = False
+        self._embed_client = None  # set via set_embed_client()
+        self._embed_model = "text-embedding-3-small"
+        self._cache_path = knowledge_path / ".embeddings_cache.json" if knowledge_path else None
 
     def _load(self) -> None:
         if self._loaded:
@@ -125,3 +163,90 @@ class KnowledgeEngine:
     def list_all(self) -> list[dict]:
         self._load()
         return [a.to_dict() for a in self._articles]
+
+    # --- Vector / semantic search ---
+
+    def set_embed_client(self, client, model: str = "text-embedding-3-small") -> None:
+        """Inject an AsyncOpenAI-compatible client for embeddings."""
+        self._embed_client = client
+        self._embed_model = model
+
+    async def build_embeddings(self) -> None:
+        """Compute and cache embeddings for all articles. Safe to call repeatedly."""
+        if self._embed_client is None:
+            return
+        self._load()
+        if not self._articles:
+            return
+
+        content_hash = _content_hash(self._articles)
+
+        # Try loading from cache first
+        cached = self._load_embedding_cache()
+        if cached and cached.get("hash") == content_hash:
+            self._embeddings = cached["embeddings"]
+            self._embeddings_ready = True
+            logger.info("embeddings_loaded_from_cache", count=len(self._embeddings))
+            return
+
+        # Build fresh embeddings
+        texts = [a.embedding_text() for a in self._articles]
+        try:
+            response = await self._embed_client.embeddings.create(
+                input=texts,
+                model=self._embed_model,
+            )
+            self._embeddings = {}
+            for article, embedding_data in zip(self._articles, response.data):
+                self._embeddings[article.slug] = embedding_data.embedding
+            self._embeddings_ready = True
+            self._save_embedding_cache(content_hash)
+            logger.info("embeddings_built", count=len(self._embeddings))
+        except Exception as e:
+            logger.warning("embeddings_failed", error=str(e))
+            self._embeddings_ready = False
+
+    async def semantic_search(self, query: str, limit: int = 5) -> list[KnowledgeArticle]:
+        """Search articles by embedding similarity. Falls back to keyword search."""
+        if not self._embeddings_ready or self._embed_client is None:
+            return self.search(query, limit=limit)
+
+        try:
+            response = await self._embed_client.embeddings.create(
+                input=[query],
+                model=self._embed_model,
+            )
+            query_embedding = response.data[0].embedding
+        except Exception:
+            return self.search(query, limit=limit)
+
+        scored: list[tuple[float, KnowledgeArticle]] = []
+        for article in self._articles:
+            if article.slug not in self._embeddings:
+                continue
+            sim = _cosine_similarity(query_embedding, self._embeddings[article.slug])
+            scored.append((sim, article))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [article for _, article in scored[:limit]]
+
+    def _load_embedding_cache(self) -> dict | None:
+        if self._cache_path is None or not self._cache_path.exists():
+            return None
+        try:
+            return json.loads(self._cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _save_embedding_cache(self, content_hash: str) -> None:
+        if self._cache_path is None:
+            return
+        cache = {
+            "hash": content_hash,
+            "model": self._embed_model,
+            "embeddings": self._embeddings,
+        }
+        try:
+            self._cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        except OSError:
+            pass

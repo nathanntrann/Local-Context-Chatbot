@@ -43,7 +43,7 @@ def _get_engine():
 )
 async def search_knowledge(query: str, limit: int = 5) -> str:
     engine = _get_engine()
-    results = engine.search(query, limit=limit)
+    results = await engine.semantic_search(query, limit=limit)
     if not results:
         return json.dumps({"results": [], "message": "No matching articles found."})
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from inspect_assist.llm import ImageContent, LLMResponse, Message, Role
@@ -93,6 +94,14 @@ async def analyze_image(image_path: str) -> str:
             "image": img_info.to_dict(),
             "analysis": response.content,
             "tokens_used": response.usage,
+            "_attachments": [
+                {
+                    "type": "image",
+                    "data": image_content.base64_data,
+                    "media_type": image_content.media_type,
+                    "label": img_info.filename,
+                }
+            ],
         },
         indent=2,
     )
@@ -140,6 +149,20 @@ async def compare_images(image_path_1: str, image_path_2: str) -> str:
             "image_2": img2.to_dict(),
             "comparison": response.content,
             "tokens_used": response.usage,
+            "_attachments": [
+                {
+                    "type": "image",
+                    "data": ic1.base64_data,
+                    "media_type": ic1.media_type,
+                    "label": img1.filename,
+                },
+                {
+                    "type": "image",
+                    "data": ic2.base64_data,
+                    "media_type": ic2.media_type,
+                    "label": img2.filename,
+                },
+            ],
         },
         indent=2,
     )
@@ -202,3 +225,131 @@ async def find_suspicious_labels(label: str, sample_size: int = 8) -> str:
             })
 
     return json.dumps({"label_audited": label, "samples_checked": len(results), "results": results}, indent=2)
+
+
+@tool(
+    name="generate_audit_report",
+    description=(
+        "Generate a comprehensive quality audit report by sampling and analyzing "
+        "images from ALL label folders (PASS and FAULT). Produces a structured report "
+        "with per-image verdicts, mislabel rates, confidence distributions, and an "
+        "overall dataset quality score. Saves the report as a JSON file. "
+        "Use when the user asks for a full dataset audit, quality report, or data review."
+    ),
+    params=[
+        ToolParam(
+            name="sample_size",
+            type="integer",
+            description="Number of images to sample per label (default 5)",
+            required=False,
+        ),
+    ],
+)
+async def generate_audit_report(sample_size: int = 5) -> str:
+    llm, dataset, settings = _get_deps()
+
+    summary = dataset.get_summary()
+    labels = summary.labels
+    if not labels:
+        return json.dumps({"error": "No labels found in dataset"})
+
+    audit_prompt = (
+        "You are auditing a thermal inspection image label.\n"
+        "This image is labeled '{label}'.\n"
+        "Filename: {filename}\n\n"
+        "Assess whether this label is correct. "
+        "Reply ONLY with a JSON object (no markdown):\n"
+        '{{"verdict": "PASS" or "FAULT", "label_correct": true/false, '
+        '"confidence": "high"/"medium"/"low", "reason": "brief explanation"}}'
+    )
+
+    all_results: dict[str, list[dict]] = {}
+    total_checked = 0
+    total_mislabels = 0
+    confidence_counts = {"high": 0, "medium": 0, "low": 0}
+
+    for label in labels:
+        samples = dataset.get_sample(label, sample_size)
+        label_results: list[dict] = []
+
+        for img_info in samples:
+            total_checked += 1
+            try:
+                image_content = ImageContent.from_path(
+                    img_info.path, max_size_px=settings.vision_max_image_size_px
+                )
+                prompt = audit_prompt.format(label=img_info.label, filename=img_info.filename)
+                response: LLMResponse = await llm.chat(
+                    messages=[Message(role=Role.USER, content=prompt, images=[image_content])],
+                    temperature=0.1,
+                )
+
+                # Try to parse structured response
+                assessment = response.content.strip()
+                try:
+                    parsed = json.loads(assessment)
+                    label_correct = parsed.get("label_correct", True)
+                    confidence = parsed.get("confidence", "medium")
+                except (json.JSONDecodeError, AttributeError):
+                    parsed = {"raw": assessment}
+                    label_correct = True
+                    confidence = "medium"
+
+                if not label_correct:
+                    total_mislabels += 1
+                confidence_counts[confidence] = confidence_counts.get(confidence, 0) + 1
+
+                label_results.append({
+                    "filename": img_info.filename,
+                    "current_label": img_info.label,
+                    "assessment": parsed,
+                    "label_correct": label_correct,
+                })
+            except Exception as e:
+                label_results.append({
+                    "filename": img_info.filename,
+                    "current_label": img_info.label,
+                    "assessment": {"error": str(e)},
+                    "label_correct": None,
+                })
+
+        all_results[label] = label_results
+
+    # Calculate quality score (0-100)
+    if total_checked > 0:
+        mislabel_rate = total_mislabels / total_checked
+        high_confidence_rate = confidence_counts.get("high", 0) / total_checked
+        quality_score = round((1 - mislabel_rate) * 80 + high_confidence_rate * 20)
+    else:
+        mislabel_rate = 0.0
+        quality_score = 0
+
+    report = {
+        "report_type": "dataset_quality_audit",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_path": str(dataset._root),
+        "dataset_overview": {
+            "total_images": summary.total_images,
+            "labels": {lbl: len(dataset.get_images(lbl)) for lbl in labels},
+        },
+        "audit_summary": {
+            "images_audited": total_checked,
+            "mislabels_found": total_mislabels,
+            "mislabel_rate": round(mislabel_rate * 100, 1),
+            "quality_score": quality_score,
+            "confidence_distribution": confidence_counts,
+        },
+        "per_label_results": all_results,
+    }
+
+    # Save report to disk
+    report_dir = Path(dataset._root).parent / "reports"
+    report_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    report_path = report_dir / f"audit_report_{timestamp}.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    # Add file path to the response
+    report["report_saved_to"] = str(report_path)
+
+    return json.dumps(report, indent=2)

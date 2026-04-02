@@ -7,5 +7,6 @@ services:
       - .env
     volumes:
       - ./data/images:/app/data/images:ro
+      - ./data:/app/data
       - ./knowledge:/app/knowledge:ro
     restart: unless-stopped

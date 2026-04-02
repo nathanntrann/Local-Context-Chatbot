@@ -15,6 +15,7 @@ dependencies = [
     "Pillow>=10.4,<11",
     "pyyaml>=6.0,<7",
     "structlog>=24.4,<25",
+    "aiosqlite>=0.20,<1",
 ]
 
 [project.optional-dependencies]

@@ -80,6 +80,106 @@
             border-color: var(--accent);
         }
 
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .model-selector select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            min-width: 160px;
+        }
+
+        .model-selector select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .model-selector label {
+            color: var(--text-muted);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        /* API key modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90vw;
+        }
+
+        .modal h3 {
+            margin-bottom: 16px;
+            font-size: 16px;
+        }
+
+        .modal input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .modal input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .modal input::placeholder { color: var(--text-muted); }
+
+        .modal .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .modal .modal-actions button {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .modal .btn-cancel {
+            background: var(--surface2);
+            color: var(--text-muted);
+        }
+
+        .modal .btn-confirm {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .modal .btn-confirm:hover { background: var(--accent-hover); }
+
         #chat-container {
             flex: 1;
             overflow-y: auto;
@@ -279,9 +379,28 @@
     <header>
         <h1><span class="logo">IA</span> InspectAssist</h1>
         <div class="header-actions">
+            <div class="model-selector">
+                <label for="model-select">Model:</label>
+                <select id="model-select" onchange="onModelChange(this)">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
             <button onclick="newChat()">New Chat</button>
         </div>
     </header>
+
+    <!-- API key modal for cloud providers -->
+    <div class="modal-overlay" id="api-key-modal">
+        <div class="modal">
+            <h3 id="modal-title">API Key Required</h3>
+            <input type="password" id="modal-api-key" placeholder="API Key">
+            <input type="text" id="modal-endpoint" placeholder="Endpoint URL (Azure only)" style="display:none">
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="cancelModelSwitch()">Cancel</button>
+                <button class="btn-confirm" onclick="confirmModelSwitch()">Connect</button>
+            </div>
+        </div>
+    </div>
 
     <div id="chat-container">
         <div class="welcome" id="welcome">
@@ -307,10 +426,121 @@
 
     <script>
         let conversationId = null;
+        let pendingSwitch = null;  // {provider, model} waiting for API key
         const chatContainer = document.getElementById('chat-container');
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
         const welcome = document.getElementById('welcome');
+        const modelSelect = document.getElementById('model-select');
+
+        // Load available models on page load
+        loadModels();
+
+        async function loadModels() {
+            try {
+                const res = await fetch('/api/v1/models');
+                if (!res.ok) return;
+                const models = await res.json();
+
+                modelSelect.innerHTML = '';
+                const groups = {};
+                models.forEach(m => {
+                    if (!groups[m.provider]) groups[m.provider] = [];
+                    groups[m.provider].push(m);
+                });
+
+                const providerLabels = {
+                    ollama: '🖥️ Local (Ollama)',
+                    openai: '☁️ OpenAI',
+                    azure_openai: '☁️ Azure OpenAI'
+                };
+
+                for (const [provider, items] of Object.entries(groups)) {
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = providerLabels[provider] || provider;
+                    items.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m.id;
+                        opt.textContent = m.name;
+                        opt.dataset.provider = m.provider;
+                        if (m.active) opt.selected = true;
+                        optgroup.appendChild(opt);
+                    });
+                    modelSelect.appendChild(optgroup);
+                }
+            } catch (e) {
+                modelSelect.innerHTML = '<option>Offline</option>';
+            }
+        }
+
+        function onModelChange(select) {
+            const opt = select.selectedOptions[0];
+            if (!opt) return;
+            const provider = opt.dataset.provider;
+            const model = opt.textContent;
+
+            if (provider === 'ollama') {
+                switchModel(provider, model);
+            } else {
+                // Cloud provider — show API key modal
+                pendingSwitch = { provider, model };
+                document.getElementById('modal-title').textContent =
+                    provider === 'openai' ? 'OpenAI API Key' : 'Azure OpenAI Credentials';
+                document.getElementById('modal-endpoint').style.display =
+                    provider === 'azure_openai' ? 'block' : 'none';
+                document.getElementById('modal-api-key').value = '';
+                document.getElementById('modal-endpoint').value = '';
+                document.getElementById('api-key-modal').classList.add('active');
+            }
+        }
+
+        function cancelModelSwitch() {
+            document.getElementById('api-key-modal').classList.remove('active');
+            pendingSwitch = null;
+            loadModels(); // reset dropdown to current active
+        }
+
+        async function confirmModelSwitch() {
+            if (!pendingSwitch) return;
+            const apiKey = document.getElementById('modal-api-key').value.trim();
+            const endpoint = document.getElementById('modal-endpoint').value.trim();
+
+            if (!apiKey) {
+                document.getElementById('modal-api-key').style.borderColor = 'var(--error)';
+                return;
+            }
+
+            document.getElementById('api-key-modal').classList.remove('active');
+            await switchModel(pendingSwitch.provider, pendingSwitch.model, apiKey, endpoint || undefined);
+            pendingSwitch = null;
+        }
+
+        async function switchModel(provider, model, apiKey, endpoint) {
+            try {
+                const body = { provider, model };
+                if (apiKey) body.api_key = apiKey;
+                if (endpoint) body.endpoint = endpoint;
+
+                const res = await fetch('/api/v1/models/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    addMessage('error', `Failed to switch model: ${err.detail || 'Unknown error'}`);
+                    loadModels();
+                    return;
+                }
+
+                loadModels();
+                addMessage('assistant', `Switched to **${model}** (${provider})`);
+            } catch (e) {
+                addMessage('error', `Model switch failed: ${e.message}`);
+                loadModels();
+            }
+        }
 
         // Auto-resize textarea
         userInput.addEventListener('input', function() {
