@@ -7,6 +7,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import Literal
 
 import structlog
 
@@ -75,6 +76,29 @@ DISCLAIMER = (
 
 _SUGGESTIONS_RE = re.compile(r"<!--suggestions:(.*?)-->", re.DOTALL)
 
+# Keywords that signal a question needs the strong (expensive) model
+_STRONG_KEYWORDS = re.compile(
+    r"\b("
+    r"analy[sz]e|inspect|diagnos[ei]|audit|suspicious|mislabel|mis-label"
+    r"|compare\s+image|compare\s+these|side.by.side"
+    r"|what(?:'|')?s\s+wrong|check\s+this|look\s+at\s+this|examine"
+    r"|generate\s+report|quality\s+report|audit\s+report"
+    r"|defect|fault.*image|image.*fault"
+    r"|seal\s+quality|burn.through|cold\s+seal|wrinkle"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def classify_difficulty(user_message: str) -> Literal["fast", "strong"]:
+    """Classify whether a message needs the strong or fast model.
+
+    Returns "strong" for vision/analysis tasks, "fast" for knowledge/general questions.
+    """
+    if _STRONG_KEYWORDS.search(user_message):
+        return "strong"
+    return "fast"
+
 
 def _extract_suggestions(text: str) -> tuple[str, list[str]]:
     """Parse and strip <!--suggestions:[...]-->  from response text."""
@@ -113,6 +137,7 @@ class ChatResult:
     data_locality: str = ""
     attachments: list[dict] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
+    model_tier: str = ""  # "fast" or "strong" when routing is enabled
 
 
 @dataclass
@@ -133,13 +158,26 @@ class Orchestrator:
         max_turns: int = 50,
         max_tool_calls_per_turn: int = 5,
         store: ConversationStore | None = None,
+        llm_fast: OpenAIProvider | None = None,
+        routing_enabled: bool = False,
     ) -> None:
-        self._llm = llm
+        self._llm = llm  # default / strong provider
+        self._llm_fast = llm_fast or llm  # cheap provider (same as strong when routing off)
+        self._routing_enabled = routing_enabled
         self._tools = tool_registry
         self._max_turns = max_turns
         self._max_tool_calls = max_tool_calls_per_turn
         self._conversations: dict[str, Conversation] = {}
         self._store = store
+
+    def _pick_llm(self, user_message: str) -> tuple[OpenAIProvider, str]:
+        """Choose the appropriate LLM provider based on message difficulty."""
+        if not self._routing_enabled:
+            return self._llm, ""
+        tier = classify_difficulty(user_message)
+        if tier == "strong":
+            return self._llm, "strong"
+        return self._llm_fast, "fast"
 
     async def get_or_create_conversation(self, conversation_id: str | None = None) -> Conversation:
         if conversation_id and conversation_id in self._conversations:
@@ -195,6 +233,9 @@ class Orchestrator:
                 data_locality=self._llm.data_locality,
             )
 
+        # Pick model based on routing
+        llm, model_tier = self._pick_llm(user_message)
+
         conv.messages.append(Message(role=Role.USER, content=user_message))
 
         tool_schemas = self._tools.openai_schemas()
@@ -202,9 +243,9 @@ class Orchestrator:
         attachments: list[dict] = []
 
         while True:
-            log = logger.bind(conversation_id=conv.id, tool_round=tool_rounds)
+            log = logger.bind(conversation_id=conv.id, tool_round=tool_rounds, model_tier=model_tier)
 
-            response: LLMResponse = await self._llm.chat(
+            response: LLMResponse = await llm.chat(
                 messages=conv.messages,
                 tools=tool_schemas if tool_schemas else None,
             )
@@ -221,10 +262,11 @@ class Orchestrator:
                 return ChatResult(
                     response=clean_text,
                     conversation_id=conv.id,
-                    provider=self._llm.provider_name,
-                    data_locality=self._llm.data_locality,
+                    provider=llm.provider_name,
+                    data_locality=llm.data_locality,
                     attachments=attachments,
                     suggestions=suggestions,
+                    model_tier=model_tier,
                 )
 
             # Process tool calls
@@ -234,17 +276,18 @@ class Orchestrator:
                     Message(role=Role.ASSISTANT, content="I've reached the tool call limit for this turn. Let me summarize what I found so far.")
                 )
                 # One more LLM call without tools to get summary
-                summary = await self._llm.chat(messages=conv.messages)
+                summary = await llm.chat(messages=conv.messages)
                 clean_text, suggestions = _extract_suggestions(summary.content)
                 conv.messages.append(Message(role=Role.ASSISTANT, content=clean_text))
                 await self._persist(conv)
                 return ChatResult(
                     response=clean_text,
                     conversation_id=conv.id,
-                    provider=self._llm.provider_name,
-                    data_locality=self._llm.data_locality,
+                    provider=llm.provider_name,
+                    data_locality=llm.data_locality,
                     attachments=attachments,
                     suggestions=suggestions,
+                    model_tier=model_tier,
                 )
 
             # Add the assistant's tool-call message
@@ -283,6 +326,9 @@ class Orchestrator:
             yield _sse({"type": "done", "conversation_id": conv.id})
             return
 
+        # Pick model based on routing
+        llm, model_tier = self._pick_llm(user_message)
+
         conv.messages.append(Message(role=Role.USER, content=user_message))
 
         tool_schemas = self._tools.openai_schemas()
@@ -292,7 +338,7 @@ class Orchestrator:
         while True:
             final_response: LLMResponse | None = None
 
-            async for chunk in self._llm.stream(
+            async for chunk in llm.stream(
                 messages=conv.messages,
                 tools=tool_schemas if tool_schemas else None,
             ):
@@ -312,10 +358,11 @@ class Orchestrator:
                 yield _sse({
                     "type": "done",
                     "conversation_id": conv.id,
-                    "provider": self._llm.provider_name,
-                    "data_locality": self._llm.data_locality,
+                    "provider": llm.provider_name,
+                    "data_locality": llm.data_locality,
                     "suggestions": suggestions,
                     "attachments": attachments,
+                    "model_tier": model_tier,
                 })
                 return
 
@@ -326,7 +373,7 @@ class Orchestrator:
                     Message(role=Role.ASSISTANT, content="I've reached the tool call limit. Let me summarize.")
                 )
                 summary_suggestions: list[str] = []
-                async for chunk in self._llm.stream(messages=conv.messages):
+                async for chunk in llm.stream(messages=conv.messages):
                     if isinstance(chunk, str):
                         yield _sse({"type": "token", "content": chunk})
                     elif isinstance(chunk, LLMResponse):
@@ -336,10 +383,11 @@ class Orchestrator:
                 yield _sse({
                     "type": "done",
                     "conversation_id": conv.id,
-                    "provider": self._llm.provider_name,
-                    "data_locality": self._llm.data_locality,
+                    "provider": llm.provider_name,
+                    "data_locality": llm.data_locality,
                     "suggestions": summary_suggestions,
                     "attachments": attachments,
+                    "model_tier": model_tier,
                 })
                 return
 

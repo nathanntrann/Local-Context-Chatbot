@@ -17,7 +17,7 @@ from inspect_assist.adapters.dataset import ImageDatasetAdapter
 from inspect_assist.api.routes import router
 from inspect_assist.config import get_settings
 from inspect_assist.knowledge import KnowledgeEngine
-from inspect_assist.llm.providers import create_llm_provider
+from inspect_assist.llm.providers import create_llm_provider, create_provider_for
 from inspect_assist.orchestrator import Orchestrator
 from inspect_assist.storage import ConversationStore
 from inspect_assist.tools import ToolRegistry
@@ -118,13 +118,29 @@ def create_app() -> FastAPI:
     db_path = Path(settings.dataset_path).parent / "conversations.db"
     conversation_store = ConversationStore(str(db_path))
 
+    # Build smart-routing providers (if enabled)
+    llm_fast = None
+    routing_enabled = settings.routing_enabled
+    if routing_enabled:
+        llm_fast = create_provider_for(settings.fast_provider, settings.fast_model, settings)
+        llm_strong = create_provider_for(settings.strong_provider, settings.strong_model, settings)
+        logger.info(
+            "smart_routing_enabled",
+            fast=f"{settings.fast_provider.value}/{settings.fast_model}",
+            strong=f"{settings.strong_provider.value}/{settings.strong_model}",
+        )
+    else:
+        llm_strong = llm
+
     # Build orchestrator
     orchestrator = Orchestrator(
-        llm=llm,
+        llm=llm_strong,
         tool_registry=registry,
         max_turns=settings.max_conversation_turns,
         max_tool_calls_per_turn=settings.max_tool_calls_per_turn,
         store=conversation_store,
+        llm_fast=llm_fast,
+        routing_enabled=routing_enabled,
     )
 
     # Store on app state for route access

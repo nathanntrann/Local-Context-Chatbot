@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml>=6.0,<7",
     "structlog>=24.4,<25",
     "aiosqlite>=0.20,<1",
+    "anthropic>=0.39,<1",
 ]
 
 [project.optional-dependencies]

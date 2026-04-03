@@ -24,6 +24,7 @@ class ChatResponse(BaseModel):
     data_locality: str = ""  # "local" or "cloud"
     attachments: list[Attachment] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
+    model_tier: str = ""  # "fast" or "strong" when routing is enabled
 
 
 class HealthResponse(BaseModel):
@@ -50,7 +51,7 @@ class ModelInfo(BaseModel):
 
 
 class ModelSwitchRequest(BaseModel):
-    provider: str = Field(..., pattern="^(ollama|openai|azure_openai)$")
+    provider: str = Field(..., pattern="^(ollama|openai|azure_openai|anthropic)$")
     model: str = Field(..., min_length=1, max_length=200)
     api_key: str | None = None
     endpoint: str | None = None

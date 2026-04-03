@@ -10,6 +10,7 @@ from inspect_assist.orchestrator import (
     Orchestrator,
     _extract_attachments,
     _extract_suggestions,
+    classify_difficulty,
 )
 from inspect_assist.tools import ToolDef, ToolParam, ToolRegistry
 
@@ -235,3 +236,88 @@ class TestOrchestrator:
         loaded = await store.load(result.conversation_id)
         assert loaded is not None
         assert any(m.content == "hi" for m in loaded)
+
+
+# --- Smart routing tests ---
+
+class TestClassifyDifficulty:
+    """Test the deterministic keyword classifier for model routing."""
+
+    def test_vision_keywords_strong(self):
+        assert classify_difficulty("Can you analyze this thermal image?") == "strong"
+        assert classify_difficulty("Compare these two images side by side") == "strong"
+        assert classify_difficulty("Audit the FAULT folder for mislabels") == "strong"
+        assert classify_difficulty("What's wrong with this seal?") == "strong"
+        assert classify_difficulty("Check this image for defects") == "strong"
+        assert classify_difficulty("Diagnose the issue with these seals") == "strong"
+
+    def test_report_keywords_strong(self):
+        assert classify_difficulty("Generate a quality report") == "strong"
+        assert classify_difficulty("Generate audit report for PASS folder") == "strong"
+        assert classify_difficulty("Find suspicious labels in FAULT") == "strong"
+
+    def test_defect_keywords_strong(self):
+        assert classify_difficulty("Is this a cold seal?") == "strong"
+        assert classify_difficulty("I see burn-through on this sample") == "strong"
+        assert classify_difficulty("This looks like a wrinkle defect") == "strong"
+        assert classify_difficulty("Check the seal quality") == "strong"
+
+    def test_simple_knowledge_fast(self):
+        assert classify_difficulty("What is NETD?") == "fast"
+        assert classify_difficulty("How do I adjust thresholds?") == "fast"
+        assert classify_difficulty("Getting started with the system") == "fast"
+        assert classify_difficulty("What temperature range should I use?") == "fast"
+        assert classify_difficulty("Hello, how can you help me?") == "fast"
+
+    def test_troubleshooting_fast(self):
+        assert classify_difficulty("Why am I getting inconsistent results?") == "fast"
+        assert classify_difficulty("The system seems slow today") == "fast"
+        assert classify_difficulty("How do I calibrate the camera?") == "fast"
+
+    def test_case_insensitive(self):
+        assert classify_difficulty("ANALYZE this IMAGE") == "strong"
+        assert classify_difficulty("WHAT IS NETD?") == "fast"
+
+
+class TestRoutingIntegration:
+    """Test that routing wires the correct provider into chat."""
+
+    @pytest.mark.asyncio
+    async def test_routing_disabled_returns_empty_tier(self):
+        llm = _make_llm(content="reply")
+        orch = Orchestrator(llm=llm, tool_registry=_make_registry(), routing_enabled=False)
+        result = await orch.chat("analyze this image")
+        assert result.model_tier == ""
+        assert result.response == "reply"
+
+    @pytest.mark.asyncio
+    async def test_routing_enabled_strong(self):
+        llm_strong = _make_llm(content="strong reply")
+        llm_fast = _make_llm(content="fast reply")
+        orch = Orchestrator(
+            llm=llm_strong,
+            tool_registry=_make_registry(),
+            llm_fast=llm_fast,
+            routing_enabled=True,
+        )
+        result = await orch.chat("analyze this thermal image for defects")
+        assert result.model_tier == "strong"
+        assert result.response == "strong reply"
+        llm_strong.chat.assert_called_once()
+        llm_fast.chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_routing_enabled_fast(self):
+        llm_strong = _make_llm(content="strong reply")
+        llm_fast = _make_llm(content="fast reply")
+        orch = Orchestrator(
+            llm=llm_strong,
+            tool_registry=_make_registry(),
+            llm_fast=llm_fast,
+            routing_enabled=True,
+        )
+        result = await orch.chat("What is NETD?")
+        assert result.model_tier == "fast"
+        assert result.response == "fast reply"
+        llm_fast.chat.assert_called_once()
+        llm_strong.chat.assert_not_called()

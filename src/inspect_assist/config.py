@@ -13,6 +13,7 @@ class LLMProvider(str, Enum):
     AZURE_OPENAI = "azure_openai"
     OPENAI = "openai"
     OLLAMA = "ollama"
+    ANTHROPIC = "anthropic"
 
 
 class Settings(BaseSettings):
@@ -35,12 +36,23 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_model: str = "llama3.1:8b"
 
+    # Anthropic (Claude)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-20250514"
+
     # --- App ---
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
     api_key: str = ""  # If set, requires X-API-Key header on all /api/ routes
     rate_limit_per_minute: int = 30  # Max requests per minute on chat endpoints (0 = unlimited)
+
+    # --- Smart routing ---
+    routing_enabled: bool = False
+    fast_provider: LLMProvider = LLMProvider.OLLAMA
+    fast_model: str = "llama3.1:8b"
+    strong_provider: LLMProvider = LLMProvider.OLLAMA
+    strong_model: str = "llama3.1:8b"
 
     # --- Data ---
     dataset_path: Path = Path("./data/images")

@@ -1,7 +1,8 @@
-"""OpenAI and Azure OpenAI LLM provider implementations."""
+"""OpenAI, Azure OpenAI, and Anthropic LLM provider implementations."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -210,5 +211,214 @@ class OpenAIProvider:
         return {"role": m.role.value, "content": m.content}
 
 
-def create_llm_provider(settings: Settings) -> OpenAIProvider:
+def create_llm_provider(settings: Settings) -> OpenAIProvider | AnthropicProvider:
+    if settings.llm_provider == LLMProvider.ANTHROPIC:
+        return AnthropicProvider(settings)
     return OpenAIProvider(settings)
+
+
+def create_provider_for(
+    provider: LLMProvider, model: str, settings: Settings
+) -> OpenAIProvider | AnthropicProvider:
+    """Create a provider with an explicit provider type and model override."""
+    if provider == LLMProvider.ANTHROPIC:
+        patched = settings.model_copy()
+        patched.llm_provider = provider
+        patched.anthropic_model = model
+        return AnthropicProvider(patched)
+
+    patched = settings.model_copy()
+    patched.llm_provider = provider
+    if provider == LLMProvider.OLLAMA:
+        patched.ollama_model = model
+    elif provider == LLMProvider.OPENAI:
+        patched.openai_model = model
+    elif provider == LLMProvider.AZURE_OPENAI:
+        patched.azure_openai_deployment = model
+    return OpenAIProvider(patched)
+
+
+class AnthropicProvider:
+    """Provider for Anthropic Claude models."""
+
+    def __init__(self, settings: Settings) -> None:
+        import anthropic
+        self._settings = settings
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self._model = settings.anthropic_model
+
+    @property
+    def provider_name(self) -> str:
+        return "anthropic"
+
+    @property
+    def data_locality(self) -> str:
+        return "cloud"
+
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.2,
+    ) -> LLMResponse:
+        system_prompt, api_messages = self._convert_messages(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": api_messages,
+            "temperature": temperature,
+            "max_tokens": 4096,
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        response = await self._client.messages.create(**kwargs)
+
+        content = ""
+        tool_calls: list[ToolCallRequest] = []
+        for block in response.content:
+            if block.type == "text":
+                content += block.text
+            elif block.type == "tool_use":
+                tool_calls.append(
+                    ToolCallRequest(
+                        id=block.id,
+                        function_name=block.name,
+                        arguments_json=json.dumps(block.input),
+                    )
+                )
+
+        usage_dict: dict[str, int] = {}
+        if response.usage:
+            usage_dict = {
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens,
+                "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+            }
+
+        return LLMResponse(content=content, tool_calls=tool_calls, usage=usage_dict)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.2,
+    ) -> AsyncIterator[str | LLMResponse]:
+        system_prompt, api_messages = self._convert_messages(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": api_messages,
+            "temperature": temperature,
+            "max_tokens": 4096,
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        content_buffer = ""
+        tool_calls: list[ToolCallRequest] = []
+        current_tool: dict[str, Any] = {}
+
+        async with self._client.messages.stream(**kwargs) as stream:
+            async for event in stream:
+                if event.type == "content_block_start":
+                    if event.content_block.type == "tool_use":
+                        current_tool = {
+                            "id": event.content_block.id,
+                            "name": event.content_block.name,
+                            "arguments": "",
+                        }
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        content_buffer += event.delta.text
+                        yield event.delta.text
+                    elif event.delta.type == "input_json_delta":
+                        current_tool["arguments"] += event.delta.partial_json
+                elif event.type == "content_block_stop":
+                    if current_tool:
+                        tool_calls.append(
+                            ToolCallRequest(
+                                id=current_tool["id"],
+                                function_name=current_tool["name"],
+                                arguments_json=current_tool["arguments"],
+                            )
+                        )
+                        current_tool = {}
+
+        yield LLMResponse(content=content_buffer, tool_calls=tool_calls, usage={})
+
+    @staticmethod
+    def _convert_messages(messages: list[Message]) -> tuple[str, list[dict[str, Any]]]:
+        """Split system prompt from messages and convert to Anthropic format."""
+        system_prompt = ""
+        api_messages: list[dict[str, Any]] = []
+
+        for m in messages:
+            if m.role == Role.SYSTEM:
+                system_prompt = m.content
+                continue
+
+            if m.role == Role.TOOL:
+                api_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": m.tool_call_id,
+                            "content": m.content,
+                        }
+                    ],
+                })
+                continue
+
+            if m.role == Role.ASSISTANT and m.tool_calls:
+                content_blocks: list[dict[str, Any]] = []
+                if m.content:
+                    content_blocks.append({"type": "text", "text": m.content})
+                for tc in m.tool_calls:
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.function_name,
+                        "input": json.loads(tc.arguments_json) if tc.arguments_json else {},
+                    })
+                api_messages.append({"role": "assistant", "content": content_blocks})
+                continue
+
+            # Handle images for vision
+            if m.images:
+                content_parts: list[dict[str, Any]] = []
+                if m.content:
+                    content_parts.append({"type": "text", "text": m.content})
+                for img in m.images:
+                    content_parts.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": img.media_type,
+                            "data": img.base64_data,
+                        },
+                    })
+                api_messages.append({"role": m.role.value, "content": content_parts})
+                continue
+
+            api_messages.append({"role": m.role.value, "content": m.content})
+
+        return system_prompt, api_messages
+
+    @staticmethod
+    def _convert_tools(openai_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert OpenAI tool format to Anthropic tool format."""
+        anthropic_tools = []
+        for tool in openai_tools:
+            func = tool.get("function", {})
+            anthropic_tools.append({
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+            })
+        return anthropic_tools

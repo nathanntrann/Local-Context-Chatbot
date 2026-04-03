@@ -46,6 +46,7 @@ async def chat(request: Request, body: ChatRequest):
         data_locality=result.data_locality,
         attachments=[Attachment(**a) for a in result.attachments],
         suggestions=result.suggestions,
+        model_tier=result.model_tier,
     )
 
 
@@ -113,6 +114,8 @@ async def list_models(request: Request):
         ("openai", "gpt-4o"),
         ("openai", "gpt-4o-mini"),
         ("azure_openai", "gpt-4o"),
+        ("anthropic", "claude-sonnet-4-20250514"),
+        ("anthropic", "claude-haiku-4-20250514"),
     ]
     for provider, model_name in cloud_models:
         models.append(ModelInfo(
@@ -138,6 +141,8 @@ async def switch_model(request: Request, body: ModelSwitchRequest):
         raise HTTPException(status_code=400, detail="API key required for OpenAI")
     if body.provider == "azure_openai" and (not body.api_key or not body.endpoint):
         raise HTTPException(status_code=400, detail="API key and endpoint required for Azure OpenAI")
+    if body.provider == "anthropic" and not body.api_key:
+        raise HTTPException(status_code=400, detail="API key required for Anthropic")
 
     # Update settings for the new provider
     settings.llm_provider = LLMProvider(body.provider)
@@ -151,6 +156,9 @@ async def switch_model(request: Request, body: ModelSwitchRequest):
         settings.azure_openai_deployment = body.model
         settings.azure_openai_api_key = body.api_key or ""
         settings.azure_openai_endpoint = body.endpoint or ""
+    elif body.provider == "anthropic":
+        settings.anthropic_model = body.model
+        settings.anthropic_api_key = body.api_key or ""
 
     # Rebuild the LLM provider and rewire
     new_llm = create_llm_provider(settings)
@@ -257,5 +265,7 @@ def _get_current_model(settings) -> str:
         return settings.ollama_model
     elif settings.llm_provider == LLMProvider.OPENAI:
         return settings.openai_model
+    elif settings.llm_provider == LLMProvider.ANTHROPIC:
+        return settings.anthropic_model
     else:
         return settings.azure_openai_deployment
