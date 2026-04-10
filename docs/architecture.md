@@ -1,6 +1,6 @@
 # InspectAssist — Architecture
 
-> Last updated: 2026-04-02
+> Last updated: 2026-04-10
 
 ## System Overview
 
@@ -17,29 +17,39 @@
 │  │ (API)   │   │              │   │ • Azure OpenAI        │ │
 │  └─────────┘   │  System      │   │ • OpenAI              │ │
 │                │  Prompt +    │   │ • Ollama              │ │
-│                │  Tool Loop   │   └───────────────────────┘ │
-│                │  + Streaming │                              │
-│                │              │   ┌───────────────────────┐ │
-│                │        ┌─────▼───│ Conversation Store    │ │
-│                │        │ Tool    │ (SQLite / aiosqlite)  │ │
-│                │        │ Registry│                       │ │
-│                │        │ 9 tools └───────────────────────┘ │
-│                └────────┴──┬──────┬──────┘                   │
-│                            │      │                          │
-│         ┌──────────────────┘      └──────────────┐           │
-│         ▼                                        ▼           │
-│  ┌──────────────────┐                ┌────────────────────┐  │
-│  │ Dataset Adapter  │                │ Knowledge Engine   │  │
-│  │ (Image Folders)  │                │ (Markdown + YAML)  │  │
-│  └────────┬─────────┘                └────────┬───────────┘  │
-└───────────┼──────────────────────────────────┼───────────────┘
-            ▼                                  ▼
-    data/images/                        knowledge/
-    ├── PASS/                           ├── concepts/
-    └── FAULT/                          ├── parameters/
-                                        ├── procedures/
-    data/conversations.db               ├── troubleshooting/
-    data/reports/                        └── known-issues/
+│                │  Tool Loop   │   │ • Anthropic Claude    │ │
+│                │  + Streaming │   └───────────────────────┘ │
+│                │              │                              │
+│                │        ┌─────▼───┐ ┌─────────────────────┐ │
+│                │        │ Tool    │ │ Conversation Store  │ │
+│                │        │ Registry│ │ (SQLite / aiosqlite)│ │
+│                │        │ 11 tools│ │ + Feedback table    │ │
+│                └────────┴──┬──────┘ └─────────────────────┘ │
+│                            │                                 │
+│         ┌──────────────────┴──────────────┐                  │
+│         ▼                                 ▼                  │
+│  ┌──────────────────┐      ┌──────────────────────────────┐  │
+│  │ Dataset Adapter  │      │ RAG Knowledge Engine         │  │
+│  │ (Image Folders)  │      │ ┌──────────┐ ┌────────────┐ │  │
+│  └────────┬─────────┘      │ │ ChromaDB │ │ BM25 Index │ │  │
+│           │                │ │ Vectors  │ │ (rank-bm25)│ │  │
+│           │                │ └──────────┘ └────────────┘ │  │
+│           │                │ ┌────────────────────────┐  │  │
+│           │                │ │ Reranker (cross-enc.)  │  │  │
+│           │                │ └────────────────────────┘  │  │
+│           │                │ ┌────────────────────────┐  │  │
+│           │                │ │ Semantic Cache (LRU)   │  │  │
+│           │                │ └────────────────────────┘  │  │
+│           │                └──────────────┬───────────────┘  │
+└───────────┼──────────────────────────────┼───────────────────┘
+            ▼                              ▼
+    data/images/                    knowledge/
+    ├── PASS/                       ├── concepts/
+    └── FAULT/                      ├── parameters/
+                                    ├── procedures/
+    data/conversations.db           ├── troubleshooting/
+    data/vectorstore/               └── known-issues/
+    data/reports/
 ```
 
 ## Component Details
@@ -62,6 +72,8 @@
 | `/api/v1/conversations/{id}` | GET | Load a conversation with messages |
 | `/api/v1/conversations/{id}` | DELETE | Delete a persisted conversation |
 | `/api/v1/conversations/{id}/export` | GET | Export conversation as a downloadable JSON report |
+| `/api/v1/conversations/{id}/feedback` | POST | Submit user feedback (thumbs up/down) on a response |
+| `/api/v1/feedback/summary` | GET | Aggregate feedback statistics (positive, negative, rate) |
 
 ### Orchestrator (`src/inspect_assist/orchestrator.py`)
 
@@ -86,11 +98,13 @@ Conversations are in-memory with auto-pruning (keeps last 100) + SQLite persiste
 ### LLM Abstraction (`src/inspect_assist/llm/`)
 
 - `LLMProviderProtocol` — async `chat()` and `stream()` methods
-- `OpenAIProvider` — unified implementation for OpenAI, Azure OpenAI, and Ollama
+- `OpenAIProvider` — unified implementation for OpenAI, Azure OpenAI, and Ollama (all OpenAI-compatible)
+- `AnthropicProvider` — Anthropic Claude support via `anthropic` SDK
 - `stream()` — async generator yielding text chunks (`str`) and a final `LLMResponse` with tool calls
 - `provider_name` / `data_locality` properties for transparency metadata
 - Supports text + vision (multi-image) via `ImageContent` dataclass
 - Runtime model switching via settings mutation + provider rebuild
+- Smart routing: configurable fast/strong model pair — simple queries go to the cheaper model, vision/analysis goes to the strong model
 
 ### Conversation Store (`src/inspect_assist/storage.py`)
 
@@ -102,6 +116,8 @@ Conversations are in-memory with auto-pruning (keeps last 100) + SQLite persiste
 - `delete()` / `count()` — housekeeping operations
 - Title auto-derived from first user message (truncated to 80 chars)
 - Images (base64) intentionally excluded from serialization to keep DB small
+- **Feedback table** — stores user ratings (thumbs up/down) per response with query text and retrieved chunk metadata for RAG quality tracking
+- `save_feedback()` / `get_feedback_summary()` — aggregate satisfaction metrics
 
 ### Tool Framework (`src/inspect_assist/tools/__init__.py`)
 
@@ -115,12 +131,21 @@ Conversations are in-memory with auto-pruning (keeps last 100) + SQLite persiste
 - Caches file listings with manual invalidation
 - Provides: summary stats, filtered image lists, random sampling, path/name lookup
 
-### Knowledge Engine (`src/inspect_assist/knowledge.py`)
+### Knowledge Engine — RAG Pipeline (`src/inspect_assist/knowledge.py`)
+
+Full retrieval-augmented generation pipeline over Markdown + YAML frontmatter articles:
 
 - Loads all `.md` files recursively from `knowledge/`
 - Parses YAML frontmatter (title, category, tags, custom fields)
-- Keyword search with weighted scoring: title (3x) > tags (2x) > category (1.5x) > content (0.5x per hit)
-- Lookup by slug or category
+- **Two-tier document chunking** (`chunking.py`) — small chunks (256 tokens, 32 overlap) for precise search + parent chunks (1024 tokens, 128 overlap) for rich context. Uses `langchain-text-splitters` with markdown-aware separators.
+- **Contextual retrieval** — LLM generates a short article summary prepended to each chunk before embedding, improving retrieval for ambiguous queries
+- **ChromaDB vector store** (`vectorstore.py`) — persistent embedding store with two collections (`knowledge_chunks` for search, `knowledge_parents` for parent context lookup). Incremental re-indexing via content hashing.
+- **Hybrid search with RRF** — combines semantic search (ChromaDB cosine similarity) with lexical search (BM25 via `rank-bm25`). Merged using Reciprocal Rank Fusion: `score(d) = Σ 1/(k + rank(d))` with k=60.
+- **Cross-encoder reranking** (`reranker.py`) — top candidates reranked by `cross-encoder/ms-marco-MiniLM-L-6-v2` from `sentence-transformers`. Falls back to LLM-based reranking if model unavailable.
+- **Parent document retrieval** — after reranking, small search chunks mapped back to their parent chunks for richer context
+- **HyDE (optional)** — Hypothetical Document Embeddings: generates a hypothetical answer and searches with that embedding
+- **Semantic cache** (`cache.py`) — LRU cache with cosine similarity matching (threshold 0.95) and configurable TTL. Avoids redundant searches.
+- **Legacy fallback** — keyword search with weighted scoring (title 3x > tags 2x > category 1.5x > content 0.5x) when RAG index not available
 
 ## Data Model
 
@@ -176,6 +201,16 @@ conversations (
     updated_at TEXT NOT NULL,
     messages TEXT NOT NULL DEFAULT '[]'  -- JSON-serialized Message list
 )
+
+feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    message_index INTEGER NOT NULL,
+    query TEXT NOT NULL DEFAULT '',
+    retrieved_chunks TEXT NOT NULL DEFAULT '[]',  -- JSON-serialized chunk metadata
+    rating INTEGER NOT NULL,                       -- 1 = thumbs up, -1 = thumbs down
+    created_at TEXT NOT NULL
+)
 ```
 
 ### Future (v2+) — When Inspection System Ships
@@ -188,7 +223,7 @@ Expected additions:
 - **Inspection Results** — per-image classification outcome, confidence score, defect type
 - **System Logs** — hardware events, errors, timing data
 
-## Tool Registry (9 tools)
+## Tool Registry (11 tools)
 
 | Tool | Module | Inputs | Purpose |
 | --- | --- | --- | --- |
@@ -199,8 +234,10 @@ Expected additions:
 | `compare_images` | vision_tools | image_path_1, image_path_2 | Side-by-side vision comparison |
 | `find_suspicious_labels` | vision_tools | label, sample_size? | Batch mislabel detection |
 | `generate_audit_report` | vision_tools | sample_size? | Full dataset quality audit with report saved to disk |
-| `search_knowledge` | knowledge_tools | query, limit? | Keyword search across knowledge base |
-| `explain_concept` | knowledge_tools | concept | Slug lookup or search for a concept |
+| `search_knowledge` | knowledge_tools | query, limit? | Semantic RAG search across knowledge base |
+| `search_knowledge_filtered` | knowledge_tools | query, category, limit? | RAG search filtered by category (concepts, troubleshooting, etc.) |
+| `get_article_section` | knowledge_tools | article_slug, heading | Retrieve a specific section from a knowledge article |
+| `explain_concept` | knowledge_tools | concept | Slug lookup or RAG search for a concept |
 
 ## Configuration
 
@@ -208,15 +245,20 @@ All settings via environment variables (`.env` file), loaded by Pydantic Setting
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LLM_PROVIDER` | `ollama` | `azure_openai`, `openai`, or `ollama` |
+| `LLM_PROVIDER` | `ollama` | `azure_openai`, `openai`, `ollama`, or `anthropic` |
 | `AZURE_OPENAI_ENDPOINT` | — | Azure resource URL |
 | `AZURE_OPENAI_API_KEY` | — | Azure API key |
 | `AZURE_OPENAI_DEPLOYMENT` | `gpt-4o` | Deployment name |
 | `AZURE_OPENAI_API_VERSION` | `2024-10-21` | Azure API version |
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `OPENAI_MODEL` | `gpt-4o` | OpenAI model name |
+| `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama endpoint |
 | `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
+| `ROUTING_ENABLED` | `false` | Enable smart fast/strong model routing |
+| `FAST_PROVIDER` / `FAST_MODEL` | — | Lightweight model for simple queries |
+| `STRONG_PROVIDER` / `STRONG_MODEL` | — | Powerful model for vision/analysis |
 | `APP_HOST` | `0.0.0.0` | FastAPI bind address |
 | `APP_PORT` | `8000` | FastAPI port |
 | `LOG_LEVEL` | `INFO` | Logging level |
@@ -226,6 +268,19 @@ All settings via environment variables (`.env` file), loaded by Pydantic Setting
 | `MAX_TOOL_CALLS_PER_TURN` | `5` | Max tool call rounds before forcing summary |
 | `VISION_MAX_IMAGE_SIZE_PX` | `1024` | Max image dimension for vision API |
 | `VISION_SAMPLE_SIZE` | `8` | Default batch size for image audits |
+| `CHUNK_SIZE` | `256` | Small chunk size in tokens |
+| `CHUNK_OVERLAP` | `32` | Overlap between small chunks |
+| `PARENT_CHUNK_SIZE` | `1024` | Parent chunk size in tokens |
+| `PARENT_CHUNK_OVERLAP` | `128` | Overlap between parent chunks |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model for vector search |
+| `CONTEXTUAL_RETRIEVAL_ENABLED` | `true` | Prepend article summary to chunks |
+| `HYBRID_SEARCH_ENABLED` | `true` | Combine semantic + BM25 via RRF |
+| `RRF_K` | `60` | Reciprocal Rank Fusion parameter |
+| `RERANKER_ENABLED` | `true` | Cross-encoder or LLM reranking |
+| `RERANKER_TYPE` | `cross-encoder` | `cross-encoder` or `llm` |
+| `HYDE_ENABLED` | `false` | Hypothetical Document Embeddings |
+| `SEMANTIC_CACHE_ENABLED` | `true` | Cache similar queries |
+| `MAX_CONTEXT_TOKENS` | `4096` | Max tokens injected into LLM context |
 
 ## Deployment
 

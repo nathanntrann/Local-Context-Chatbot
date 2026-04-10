@@ -16,6 +16,9 @@ from inspect_assist.api.models import (
     ConversationDetail,
     ConversationSummary,
     DeleteResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    FeedbackSummary,
     HealthResponse,
     ModelInfo,
     ModelSwitchRequest,
@@ -269,3 +272,39 @@ def _get_current_model(settings) -> str:
         return settings.anthropic_model
     else:
         return settings.azure_openai_deployment
+
+
+# --- Feedback ---
+
+@router.post(
+    "/api/v1/conversations/{conversation_id}/feedback",
+    response_model=FeedbackResponse,
+    tags=["feedback"],
+)
+async def submit_feedback(
+    request: Request, conversation_id: str, body: FeedbackRequest
+):
+    """Submit thumbs up/down feedback for a specific assistant message."""
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Persistence not enabled")
+    row_id = await store.save_feedback(
+        conversation_id=conversation_id,
+        message_index=body.message_index,
+        rating=body.rating,
+    )
+    return FeedbackResponse(id=row_id)
+
+
+@router.get(
+    "/api/v1/feedback/summary",
+    response_model=FeedbackSummary,
+    tags=["feedback"],
+)
+async def feedback_summary(request: Request):
+    """Get aggregated feedback statistics for RAG quality monitoring."""
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Persistence not enabled")
+    summary = await store.get_feedback_summary()
+    return FeedbackSummary(**summary)

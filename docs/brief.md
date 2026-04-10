@@ -32,21 +32,29 @@ A standalone FastAPI service that:
 ## Key Design Decisions
 
 - **Sidecar, not replacement** — reads system data, never controls it
-- **Tool-augmented generation** — LLM calls real functions (7 tools), never guesses
+- **Tool-augmented generation** — LLM calls real functions (11 tools), never guesses
 - **Image-first** — GPT-4o vision analyzes thermal PNGs as a core feature
-- **Flexible LLM backend** — abstraction layer supports Azure OpenAI, OpenAI, Ollama (future)
-- **No database in v1** — image folders + Markdown knowledge base are the data sources
+- **Production RAG pipeline** — two-tier chunking, hybrid search (semantic + BM25 via RRF), cross-encoder reranking, parent document retrieval, semantic caching
+- **Flexible LLM backend** — abstraction layer supports Azure OpenAI, OpenAI, Ollama, and Anthropic Claude with smart routing
+- **SQLite persistence** — conversations + user feedback stored in aiosqlite; ChromaDB for vector embeddings
 - **API-first** — temporary dev chat UI; designed to embed into the main inspection GUI
 
 ## Current Stack
 
-- Python 3.11+, FastAPI, OpenAI SDK, Pillow, structlog
+- Python 3.11+, FastAPI, Pydantic Settings, structlog
+- OpenAI SDK, Anthropic SDK, Ollama (OpenAI-compatible)
+- ChromaDB (persistent vector store), rank-bm25 (lexical search)
+- sentence-transformers (cross-encoder reranking), langchain-text-splitters (chunking)
+- aiosqlite (async SQLite for conversations + feedback)
 - YAML-frontmatter Markdown knowledge base
 - Docker Compose for deployment
-- 7 registered tools via decorator-based framework
+- 11 registered tools via decorator-based framework
+- RAG evaluation harness (Precision@k, Recall@k, MRR)
 
 ## Integration Plan
 
-Phase 1 (current): Standalone service with labeled image dataset + knowledge base
-Phase 2: Connect to coworker's inspection system via API adapters (recipes, results, logs)
-Phase 3: Deeper reasoning — trend analysis, adaptive suggestions, persistent conversations
+Phase 1 (complete): Standalone service with labeled image dataset + knowledge base
+Phase 2 (complete): RAG pipeline — two-tier chunking, ChromaDB vectors, hybrid search (BM25 + semantic via RRF), cross-encoder reranking, parent document retrieval, contextual retrieval, HyDE, semantic caching
+Phase 3 (complete): Multi-provider LLM support (Azure OpenAI, OpenAI, Ollama, Anthropic) + smart routing + SQLite persistence + user feedback + RAG evaluation framework
+Phase 4: Connect to coworker’s inspection system via API adapters (recipes, results, logs)
+Phase 5: Deeper reasoning — trend analysis, adaptive suggestions, GUI widget embedding

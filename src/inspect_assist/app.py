@@ -96,7 +96,28 @@ def create_app() -> FastAPI:
     # --- Initialize components ---
     llm = create_llm_provider(settings)
     dataset_adapter = ImageDatasetAdapter(settings.dataset_path)
-    knowledge_engine = KnowledgeEngine(settings.knowledge_path)
+    knowledge_engine = KnowledgeEngine(
+        settings.knowledge_path,
+        vectorstore_path=Path(settings.dataset_path).parent / "vectorstore",
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        parent_chunk_size=settings.parent_chunk_size,
+        parent_chunk_overlap=settings.parent_chunk_overlap,
+        embed_model=settings.embedding_model,
+        contextual_retrieval=settings.contextual_retrieval_enabled,
+        hybrid_search=settings.hybrid_search_enabled,
+        rrf_k=settings.rrf_k,
+        reranker_enabled=settings.reranker_enabled,
+        reranker_type=settings.reranker_type,
+        reranker_model=settings.reranker_model,
+        rerank_top_n=settings.rerank_top_n,
+        hyde_enabled=settings.hyde_enabled,
+        cache_enabled=settings.semantic_cache_enabled,
+        cache_similarity_threshold=settings.cache_similarity_threshold,
+        cache_ttl_seconds=settings.cache_ttl_seconds,
+        cache_max_size=settings.cache_max_size,
+        max_context_tokens=settings.max_context_tokens,
+    )
 
     # Wire embedding client for semantic search (uses same OpenAI client)
     knowledge_engine.set_embed_client(llm._client)

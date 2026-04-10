@@ -175,6 +175,33 @@ resp = requests.post("http://localhost:8000/api/v1/models/switch", json={
 })
 ```
 
+### Switch to Anthropic Claude
+
+```python
+resp = requests.post("http://localhost:8000/api/v1/models/switch", json={
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "api_key": "sk-ant-...",
+})
+```
+
+## User Feedback
+
+Collect feedback on AI responses to track RAG quality:
+
+```python
+# Submit feedback (thumbs up = 1, thumbs down = -1)
+resp = requests.post(
+    f"http://localhost:8000/api/v1/conversations/{conv_id}/feedback",
+    json={"message_index": 0, "rating": 1},
+)
+# {"id": 1, "status": "saved"}
+
+# Get aggregate feedback stats
+resp = requests.get("http://localhost:8000/api/v1/feedback/summary")
+# {"total_feedback": 42, "positive": 38, "negative": 4, "satisfaction_rate": 0.905, ...}
+```
+
 ## Batch Analysis (CLI)
 
 Run mislabel audits from the command line without starting the server:
@@ -212,7 +239,7 @@ python -m inspect_assist batch --output results/audit.json
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | `ollama`, `openai`, or `azure_openai` |
+| `LLM_PROVIDER` | `ollama` | `ollama`, `openai`, `azure_openai`, or `anthropic` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama API URL |
 | `OLLAMA_MODEL` | `llama3.1:8b` | Default Ollama model |
 | `OPENAI_API_KEY` | — | OpenAI API key |
@@ -220,6 +247,11 @@ python -m inspect_assist batch --output results/audit.json
 | `AZURE_OPENAI_ENDPOINT` | — | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_API_KEY` | — | Azure OpenAI key |
 | `AZURE_OPENAI_DEPLOYMENT` | `gpt-4o` | Azure deployment name |
+| `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model |
+| `ROUTING_ENABLED` | `false` | Enable smart fast/strong model routing |
+| `FAST_PROVIDER` / `FAST_MODEL` | — | Lightweight model for simple queries |
+| `STRONG_PROVIDER` / `STRONG_MODEL` | — | Powerful model for vision/analysis |
 | `APP_HOST` | `0.0.0.0` | Server bind address |
 | `APP_PORT` | `8000` | Server port |
 | `API_KEY` | — | If set, requires `X-API-Key` header |
@@ -228,3 +260,14 @@ python -m inspect_assist batch --output results/audit.json
 | `KNOWLEDGE_PATH` | `./knowledge` | Path to knowledge base articles |
 | `MAX_CONVERSATION_TURNS` | `50` | Max user messages per conversation |
 | `MAX_TOOL_CALLS_PER_TURN` | `5` | Max tool invocations per chat round |
+| `CHUNK_SIZE` | `256` | Small chunk size in tokens |
+| `CHUNK_OVERLAP` | `32` | Overlap between small chunks |
+| `PARENT_CHUNK_SIZE` | `1024` | Parent chunk size in tokens |
+| `PARENT_CHUNK_OVERLAP` | `128` | Overlap between parent chunks |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model for vector search |
+| `CONTEXTUAL_RETRIEVAL_ENABLED` | `true` | Prepend LLM article summary to chunks |
+| `HYBRID_SEARCH_ENABLED` | `true` | Combine semantic + BM25 via RRF |
+| `RERANKER_ENABLED` | `true` | Cross-encoder or LLM reranking |
+| `HYDE_ENABLED` | `false` | Hypothetical Document Embeddings |
+| `SEMANTIC_CACHE_ENABLED` | `true` | Cache similar queries |
+| `MAX_CONTEXT_TOKENS` | `4096` | Max tokens injected into LLM context |

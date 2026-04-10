@@ -64,6 +64,37 @@ class Settings(BaseSettings):
     vision_max_image_size_px: int = 1024
     vision_sample_size: int = 8
 
+    # --- RAG / Chunking ---
+    chunk_size: int = 256  # small chunks for search precision (tokens)
+    chunk_overlap: int = 32
+    parent_chunk_size: int = 1024  # parent chunks for response context (tokens)
+    parent_chunk_overlap: int = 128
+    embedding_model: str = "text-embedding-3-small"
+    contextual_retrieval_enabled: bool = True  # prepend article summary to chunks
+
+    # --- RAG / Search ---
+    hybrid_search_enabled: bool = True
+    rrf_k: int = 60  # Reciprocal Rank Fusion constant
+    max_context_tokens: int = 4096  # cap on tokens injected into LLM context
+
+    # --- RAG / Reranking ---
+    reranker_enabled: bool = True
+    reranker_type: str = "cross-encoder"  # "cross-encoder" or "llm"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_top_n: int = 20  # candidates to rerank
+
+    # --- RAG / HyDE ---
+    hyde_enabled: bool = False  # adds 1 LLM call latency per search
+
+    # --- RAG / Semantic Cache ---
+    semantic_cache_enabled: bool = True
+    cache_similarity_threshold: float = 0.95
+    cache_ttl_seconds: int = 3600
+    cache_max_size: int = 200
+
+    # --- RAG / Query Enhancement ---
+    query_expansion_enabled: bool = False  # LLM generates alt phrasings
+
     @property
     def dataset_pass_dir(self) -> Path:
         return self.dataset_path / "PASS"

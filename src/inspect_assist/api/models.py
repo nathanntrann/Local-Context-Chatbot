@@ -82,3 +82,21 @@ class ConversationDetail(BaseModel):
 
 class DeleteResponse(BaseModel):
     deleted: bool
+
+
+class FeedbackRequest(BaseModel):
+    message_index: int = Field(..., ge=0)
+    rating: int = Field(..., ge=-1, le=1)  # 1 = helpful, -1 = not helpful
+
+
+class FeedbackResponse(BaseModel):
+    id: int
+    status: str = "ok"
+
+
+class FeedbackSummary(BaseModel):
+    total_feedback: int = 0
+    positive: int = 0
+    negative: int = 0
+    satisfaction_rate: float = 0.0
+    recent_negative_queries: list[dict] = Field(default_factory=list)

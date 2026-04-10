@@ -17,6 +17,12 @@ dependencies = [
     "structlog>=24.4,<25",
     "aiosqlite>=0.20,<1",
     "anthropic>=0.39,<1",
+    # RAG pipeline
+    "langchain-text-splitters>=0.3,<1",
+    "tiktoken>=0.7,<1",
+    "chromadb>=0.5,<1",
+    "rank-bm25>=0.2,<1",
+    "sentence-transformers>=3.0,<4",
 ]
 
 [project.optional-dependencies]

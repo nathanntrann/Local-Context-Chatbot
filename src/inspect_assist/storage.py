@@ -23,6 +23,18 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 """
 
+_CREATE_FEEDBACK_TABLE = """
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    message_index INTEGER NOT NULL,
+    query TEXT NOT NULL DEFAULT '',
+    retrieved_chunks TEXT NOT NULL DEFAULT '[]',
+    rating INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
 
 def _serialize_messages(messages: list[Message]) -> str:
     """Convert Message dataclass list to JSON string for storage."""
@@ -95,6 +107,7 @@ class ConversationStore:
         db = await aiosqlite.connect(self._db_path)
         if not self._initialized:
             await db.execute(_CREATE_TABLE)
+            await db.execute(_CREATE_FEEDBACK_TABLE)
             await db.commit()
             self._initialized = True
         return db
@@ -243,5 +256,68 @@ class ConversationStore:
                 }
                 for r in rows
             ]
+        finally:
+            await db.close()
+
+    # --- Feedback ---
+
+    async def save_feedback(
+        self,
+        conversation_id: str,
+        message_index: int,
+        rating: int,
+        query: str = "",
+        retrieved_chunks: str = "[]",
+    ) -> int:
+        """Save user feedback for a specific assistant message.
+
+        rating: 1 (helpful) or -1 (not helpful).
+        Returns the feedback row ID.
+        """
+        db = await self._ensure_db()
+        try:
+            now = _utcnow()
+            cursor = await db.execute(
+                """
+                INSERT INTO feedback (conversation_id, message_index, query, retrieved_chunks, rating, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (conversation_id, message_index, query, retrieved_chunks, rating, now),
+            )
+            await db.commit()
+            return cursor.lastrowid or 0
+        finally:
+            await db.close()
+
+    async def get_feedback_summary(self) -> dict[str, Any]:
+        """Aggregate feedback statistics for RAG quality monitoring."""
+        db = await self._ensure_db()
+        try:
+            cursor = await db.execute(
+                "SELECT COUNT(*), SUM(CASE WHEN rating > 0 THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN rating < 0 THEN 1 ELSE 0 END) FROM feedback"
+            )
+            row = await cursor.fetchone()
+            total = row[0] if row else 0
+            positive = row[1] if row and row[1] else 0
+            negative = row[2] if row and row[2] else 0
+
+            # Recent negative feedback queries
+            cursor = await db.execute(
+                "SELECT query, conversation_id, created_at FROM feedback "
+                "WHERE rating < 0 ORDER BY created_at DESC LIMIT 10"
+            )
+            negatives = await cursor.fetchall()
+
+            return {
+                "total_feedback": total,
+                "positive": positive,
+                "negative": negative,
+                "satisfaction_rate": round(positive / total * 100, 1) if total > 0 else 0,
+                "recent_negative_queries": [
+                    {"query": r[0], "conversation_id": r[1], "created_at": r[2]}
+                    for r in negatives
+                ],
+            }
         finally:
             await db.close()

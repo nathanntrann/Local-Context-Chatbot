@@ -62,8 +62,15 @@ the user might want to ask next. Format them as a hidden HTML comment on its own
 - **compare_images** — compare two images side by side with vision
 - **find_suspicious_labels** — audit a label folder for potential mislabels
 - **generate_audit_report** — produce a full dataset quality report
-- **search_knowledge** — search the knowledge base for articles and guides
+- **search_knowledge** — semantic search the knowledge base for relevant articles and guides
+- **search_knowledge_filtered** — search knowledge base filtered by category (concepts, troubleshooting, procedures, known-issues, parameters)
+- **get_article_section** — retrieve a specific section from a knowledge article by heading
 - **explain_concept** — look up a specific concept or parameter explanation
+
+## Multi-hop retrieval
+If initial search results don't fully answer the question, refine your query or use \
+search_knowledge_filtered to narrow by category. You can chain multiple searches to \
+gather context from different knowledge areas before composing your answer.
 """
 
 DISCLAIMER = (

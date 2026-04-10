@@ -1,0 +1,152 @@
+[
+  {
+    "query": "What NETD range is typical for industrial thermal cameras?",
+    "expected_slugs": ["camera-optics"],
+    "expected_phrases": ["30", "80 mK"]
+  },
+  {
+    "query": "Why should auto-focus not be used for thermal cameras?",
+    "expected_slugs": ["camera-optics"],
+    "expected_phrases": ["manual focus", "unreliable"]
+  },
+  {
+    "query": "What is the typical working distance for mounting a thermal camera?",
+    "expected_slugs": ["camera-optics"],
+    "expected_phrases": ["200", "500 mm"]
+  },
+  {
+    "query": "What defines a PASS label vs a FAULT label?",
+    "expected_slugs": ["classification-labeling"],
+    "expected_phrases": ["uniform heat", "PASS", "FAULT"]
+  },
+  {
+    "query": "What should I check during dataset quality checks?",
+    "expected_slugs": ["classification-labeling", "dataset-quality"],
+    "expected_phrases": ["class balance", "duplicate"]
+  },
+  {
+    "query": "What is a healthy pass ratio range?",
+    "expected_slugs": ["dataset-quality"],
+    "expected_phrases": ["60", "90%"]
+  },
+  {
+    "query": "What mislabel rate is considered acceptable?",
+    "expected_slugs": ["dataset-quality"],
+    "expected_phrases": ["2%", "5%"]
+  },
+  {
+    "query": "How many fault examples are needed for meaningful evaluation?",
+    "expected_slugs": ["dataset-quality"],
+    "expected_phrases": ["20", "30"]
+  },
+  {
+    "query": "What are the steps in the thermal seal inspection process?",
+    "expected_slugs": ["thermal-seal-inspection"],
+    "expected_phrases": ["Heat Application", "Thermal Imaging", "Classification"]
+  },
+  {
+    "query": "What are the common defect types in thermal seal inspection?",
+    "expected_slugs": ["thermal-seal-inspection"],
+    "expected_phrases": ["cold seal", "partial seal", "burn-through"]
+  },
+  {
+    "query": "Why do thermal inspection results drift throughout the day?",
+    "expected_slugs": ["KB-001-ambient-temperature"],
+    "expected_phrases": ["ambient temperature", "contrast"]
+  },
+  {
+    "query": "What is the permanent fix for ambient temperature drift?",
+    "expected_slugs": ["KB-001-ambient-temperature"],
+    "expected_phrases": ["adaptive thresholds", "temperature sensor"]
+  },
+  {
+    "query": "What are the symptoms of sensor contamination?",
+    "expected_slugs": ["KB-002-sensor-contamination"],
+    "expected_phrases": ["gradual increase", "same image region", "cleaning"]
+  },
+  {
+    "query": "How can you diagnose whether contamination is causing false faults?",
+    "expected_slugs": ["KB-002-sensor-contamination"],
+    "expected_phrases": ["uniform surface", "clustered"]
+  },
+  {
+    "query": "What is the permanent fix for sensor contamination?",
+    "expected_slugs": ["KB-002-sensor-contamination"],
+    "expected_phrases": ["protective window", "air purge", "daily maintenance"]
+  },
+  {
+    "query": "What is the typical range for the detection threshold?",
+    "expected_slugs": ["thresholds"],
+    "expected_phrases": ["0.4", "0.7"]
+  },
+  {
+    "query": "What is the recommended approach for tuning thresholds?",
+    "expected_slugs": ["thresholds"],
+    "expected_phrases": ["0.5", "0.05", "validate"]
+  },
+  {
+    "query": "What trigger mode is recommended for conveyor integration?",
+    "expected_slugs": ["conveyor-integration"],
+    "expected_phrases": ["external trigger", "photoelectric"]
+  },
+  {
+    "query": "How soon after sealing should the thermal image be captured?",
+    "expected_slugs": ["conveyor-integration"],
+    "expected_phrases": ["100", "500 ms"]
+  },
+  {
+    "query": "How many known good products should be run to establish a PASS baseline?",
+    "expected_slugs": ["getting-started"],
+    "expected_phrases": ["20", "30"]
+  },
+  {
+    "query": "What are the target performance metrics during validation?",
+    "expected_slugs": ["getting-started"],
+    "expected_phrases": ["95%", "3%"]
+  },
+  {
+    "query": "How can you distinguish between a sudden vs gradual false positive increase?",
+    "expected_slugs": ["false-positives"],
+    "expected_phrases": ["sudden spike", "gradual", "sensor drift"]
+  },
+  {
+    "query": "When should a false positive issue be escalated?",
+    "expected_slugs": ["false-positives"],
+    "expected_phrases": ["5%", "threshold adjustments"]
+  },
+  {
+    "query": "How do you determine whether inconsistency is from the product or the system?",
+    "expected_slugs": ["inconsistent-results"],
+    "expected_phrases": ["known-good sample", "10 times"]
+  },
+  {
+    "query": "What environmental factors cause inconsistent thermal inspection results?",
+    "expected_slugs": ["inconsistent-results"],
+    "expected_phrases": ["ambient temperature", "air currents", "HVAC"]
+  },
+  {
+    "query": "What can be done to reduce noise in inspection results?",
+    "expected_slugs": ["inconsistent-results"],
+    "expected_phrases": ["averaging", "multiple frames"]
+  },
+  {
+    "query": "What common threshold mistakes should be avoided?",
+    "expected_slugs": ["thresholds"],
+    "expected_phrases": ["too low", "ambient temperature", "copy-pasting"]
+  },
+  {
+    "query": "What should be done after validation is complete?",
+    "expected_slugs": ["getting-started"],
+    "expected_phrases": ["record all parameters", "lock configuration"]
+  },
+  {
+    "query": "What should be done when conveyor speed changes?",
+    "expected_slugs": ["conveyor-integration"],
+    "expected_phrases": ["trigger timing", "exposure time", "re-validate"]
+  },
+  {
+    "query": "What impact does ambient temperature have on false positive rates?",
+    "expected_slugs": ["KB-001-ambient-temperature"],
+    "expected_phrases": ["2-5%", "false positive"]
+  }
+]
