@@ -93,6 +93,7 @@ class KnowledgeEngine:
         parent_chunk_size: int = 1024,
         parent_chunk_overlap: int = 128,
         embed_model: str = "text-embedding-3-small",
+        llm_model: str = "llama3.1:8b",
         contextual_retrieval: bool = True,
         hybrid_search: bool = True,
         rrf_k: int = 60,
@@ -125,6 +126,7 @@ class KnowledgeEngine:
         # Embedding / vector store
         self._embed_client = None
         self._embed_model = embed_model
+        self._llm_model = llm_model
         self._vectorstore: VectorStore | None = None
         self._vs_path = vectorstore_path or (knowledge_path.parent / "vectorstore" if knowledge_path else None)
         self._embeddings_ready = False
@@ -250,10 +252,11 @@ class KnowledgeEngine:
 
     # --- Embedding & Indexing ---
 
-    def set_embed_client(self, client, model: str = "text-embedding-3-small") -> None:
+    def set_embed_client(self, client, model: str | None = None) -> None:
         """Inject an AsyncOpenAI-compatible client for embeddings."""
         self._embed_client = client
-        self._embed_model = model
+        if model is not None:
+            self._embed_model = model
 
     async def build_embeddings(self) -> None:
         """Chunk articles, embed, and index into ChromaDB + BM25. Safe to call repeatedly."""
@@ -287,7 +290,7 @@ class KnowledgeEngine:
             prefix = ""
             if self._contextual_retrieval:
                 prefix = await generate_context_prefix(
-                    article, self._embed_client, model="gpt-4o-mini"
+                    article, self._embed_client, model=self._llm_model
                 )
 
             small, parents = chunk_article(
@@ -451,7 +454,7 @@ class KnowledgeEngine:
             return query
         try:
             response = await self._embed_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self._llm_model,
                 messages=[
                     {
                         "role": "system",

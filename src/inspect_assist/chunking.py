@@ -150,7 +150,7 @@ def _find_parent(small_text: str, parent_chunks: list[KnowledgeChunk]) -> str | 
 async def generate_context_prefix(
     article: KnowledgeArticle,
     llm_client,
-    model: str = "gpt-4o-mini",
+    model: str = "llama3.1:8b",
 ) -> str:
     """Generate a one-sentence contextual summary for an article.
 

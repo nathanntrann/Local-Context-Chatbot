@@ -11,3 +11,5 @@ build/
 venv/
 
 data/conversations.db
+data/vectorstore/
+data/eval_vectorstore/

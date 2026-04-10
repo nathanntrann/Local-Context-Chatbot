@@ -65,12 +65,20 @@ async def run_eval(
     verbose: bool = False,
 ) -> dict[str, Any]:
     """Run the evaluation and return aggregate metrics."""
-    from inspect_assist.config import Settings
+    from inspect_assist.config import LLMProvider, Settings
     from inspect_assist.knowledge import KnowledgeEngine
     from inspect_assist.llm.providers import create_llm_provider
 
     settings = Settings()
     llm = create_llm_provider(settings)
+
+    # Resolve embedding model
+    embed_model = settings.embedding_model
+    if not embed_model:
+        if settings.llm_provider == LLMProvider.OLLAMA:
+            embed_model = "nomic-embed-text"
+        else:
+            embed_model = "text-embedding-3-small"
 
     engine = KnowledgeEngine(
         knowledge_path,
@@ -79,7 +87,8 @@ async def run_eval(
         chunk_overlap=settings.chunk_overlap,
         parent_chunk_size=settings.parent_chunk_size,
         parent_chunk_overlap=settings.parent_chunk_overlap,
-        embed_model=settings.embedding_model,
+        embed_model=embed_model,
+        llm_model=llm._model,
         contextual_retrieval=settings.contextual_retrieval_enabled,
         hybrid_search=settings.hybrid_search_enabled,
         rrf_k=settings.rrf_k,

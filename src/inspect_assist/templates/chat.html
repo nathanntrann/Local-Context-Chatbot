@@ -248,6 +248,50 @@
 
         .message strong { color: var(--accent); }
 
+        .feedback-bar {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+        }
+
+        .feedback-bar button {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.15s;
+        }
+
+        .feedback-bar button:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .feedback-bar button.selected-up {
+            background: rgba(78, 205, 196, 0.15);
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .feedback-bar button.selected-down {
+            background: rgba(255, 107, 107, 0.15);
+            border-color: var(--error);
+            color: var(--error);
+        }
+
+        .feedback-bar button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .message h1, .message h2, .message h3, .message h4 {
             margin: 12px 0 6px 0;
             color: var(--text);
@@ -426,6 +470,7 @@
 
     <script>
         let conversationId = null;
+        let messageIndex = 0;  // tracks assistant message count for feedback
         let pendingSwitch = null;  // {provider, model} waiting for API key
         const chatContainer = document.getElementById('chat-container');
         const userInput = document.getElementById('user-input');
@@ -563,9 +608,28 @@
 
         function newChat() {
             conversationId = null;
+            messageIndex = 0;
             chatContainer.innerHTML = '';
             chatContainer.appendChild(welcome);
             welcome.style.display = 'block';
+        }
+
+        async function sendFeedback(btn, msgIdx, rating) {
+            if (!conversationId) return;
+            const bar = btn.parentElement;
+            const buttons = bar.querySelectorAll('button');
+            buttons.forEach(b => { b.disabled = true; b.classList.remove('selected-up', 'selected-down'); });
+            btn.classList.add(rating === 1 ? 'selected-up' : 'selected-down');
+            try {
+                await fetch(`/api/v1/conversations/${conversationId}/feedback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_index: msgIdx, rating })
+                });
+            } catch (e) {
+                buttons.forEach(b => { b.disabled = false; });
+                btn.classList.remove('selected-up', 'selected-down');
+            }
         }
 
         function addMessage(role, content) {
@@ -575,6 +639,17 @@
 
             if (role === 'assistant') {
                 div.innerHTML = renderMarkdown(content);
+                // Add feedback buttons
+                if (conversationId) {
+                    const idx = messageIndex++;
+                    const bar = document.createElement('div');
+                    bar.className = 'feedback-bar';
+                    bar.innerHTML = `
+                        <button onclick="sendFeedback(this, ${idx}, 1)" title="Helpful">👍</button>
+                        <button onclick="sendFeedback(this, ${idx}, -1)" title="Not helpful">👎</button>
+                    `;
+                    div.appendChild(bar);
+                }
             } else {
                 div.textContent = content;
             }

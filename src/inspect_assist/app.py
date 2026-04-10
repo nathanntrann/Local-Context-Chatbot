@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from inspect_assist.adapters.dataset import ImageDatasetAdapter
 from inspect_assist.api.routes import router
-from inspect_assist.config import get_settings
+from inspect_assist.config import LLMProvider, get_settings
 from inspect_assist.knowledge import KnowledgeEngine
 from inspect_assist.llm.providers import create_llm_provider, create_provider_for
 from inspect_assist.orchestrator import Orchestrator
@@ -96,6 +96,16 @@ def create_app() -> FastAPI:
     # --- Initialize components ---
     llm = create_llm_provider(settings)
     dataset_adapter = ImageDatasetAdapter(settings.dataset_path)
+
+    # Resolve embedding model: auto-detect from provider if not explicitly set
+    embed_model = settings.embedding_model
+    if not embed_model:
+        if settings.llm_provider == LLMProvider.OLLAMA:
+            embed_model = "nomic-embed-text"
+        else:
+            embed_model = "text-embedding-3-small"
+        logger.info("auto_detected_embedding_model", model=embed_model, provider=settings.llm_provider.value)
+
     knowledge_engine = KnowledgeEngine(
         settings.knowledge_path,
         vectorstore_path=Path(settings.dataset_path).parent / "vectorstore",
@@ -103,7 +113,8 @@ def create_app() -> FastAPI:
         chunk_overlap=settings.chunk_overlap,
         parent_chunk_size=settings.parent_chunk_size,
         parent_chunk_overlap=settings.parent_chunk_overlap,
-        embed_model=settings.embedding_model,
+        embed_model=embed_model,
+        llm_model=llm._model,
         contextual_retrieval=settings.contextual_retrieval_enabled,
         hybrid_search=settings.hybrid_search_enabled,
         rrf_k=settings.rrf_k,

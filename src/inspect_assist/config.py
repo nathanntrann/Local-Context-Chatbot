@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 32
     parent_chunk_size: int = 1024  # parent chunks for response context (tokens)
     parent_chunk_overlap: int = 128
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = ""  # auto-detected from provider if empty (Ollama: nomic-embed-text, OpenAI: text-embedding-3-small)
     contextual_retrieval_enabled: bool = True  # prepend article summary to chunks
 
     # --- RAG / Search ---
