@@ -16,6 +16,10 @@ Context-aware LLM assistant for industrial thermal seal inspection. Uses GPT-4o 
 | **Explain concepts** | "What makes a good thermal seal?" → retrieves and synthesizes domain knowledge |
 | **Multi-hop retrieval** | Complex questions → agent chains multiple searches across knowledge categories |
 | **Stream responses** | Real-time token streaming via Server-Sent Events |
+| **Tool transparency** | Live tool activity indicators during streaming (spinner + labels) |
+| **Follow-up suggestions** | Clickable suggestion chips guide users to next steps |
+| **Image lightbox** | Vision tool thumbnails displayed inline with click-to-expand |
+| **Conversation sidebar** | Searchable history with resume, delete, and export |
 | **Persist history** | SQLite-backed conversation storage with list/load/delete/export |
 | **User feedback** | Rate responses → feedback stored for RAG quality tracking |
 
@@ -37,7 +41,7 @@ FastAPI Service
 ├── Conversation Store           SQLite persistence (aiosqlite) + feedback table
 ├── Dataset Adapter              Scans PASS/FAULT image folders
 ├── Knowledge Engine             Full RAG over Markdown + YAML frontmatter articles
-└── Dev Chat UI                  Single-page dark theme at /
+└── Chat UI                  SSE streaming, tool indicators, suggestions, image lightbox, conversation sidebar
 ```
 
 ## RAG Pipeline

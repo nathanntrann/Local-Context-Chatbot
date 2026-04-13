@@ -1,12 +1,12 @@
 # InspectAssist — Architecture
 
-> Last updated: 2026-04-10
+> Last updated: 2026-07-22
 
 ## System Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Client (Dev Chat UI / Future: Python GUI embed)             │
+│  Client (Chat UI / Widget / Future: Python GUI embed)        │
 └──────────────────┬───────────────────────────────────────────┘
                    │ HTTP REST + SSE streaming
 ┌──────────────────▼───────────────────────────────────────────┐
@@ -58,7 +58,7 @@
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/` | GET | Dev chat UI (Jinja2 HTML) |
+| `/` | GET | Chat UI — SSE streaming, tool indicators, suggestions, image attachments, conversation sidebar |
 | `/widget-demo` | GET | Widget embedding demo page |
 | `/health` | GET | Health check |
 | `/api/v1/chat` | POST | Send message, get response (with tool calls, attachments, suggestions) |
@@ -94,6 +94,27 @@ Key behaviors:
 - **Streaming** — `chat_stream()` yields SSE-formatted events (token, tool_start, tool_result, done)
 
 Conversations are in-memory with auto-pruning (keeps last 100) + SQLite persistence.
+
+### Chat UI (`src/inspect_assist/templates/chat.html`)
+
+Full-featured single-page chat interface served at `/`:
+
+- **SSE streaming** — real-time token-by-token rendering via `POST /api/v1/chat/stream` with `ReadableStream`
+- **Tool activity indicators** — spinner + human-readable label (e.g. "Searching knowledge base…") during tool execution
+- **Follow-up suggestions** — clickable chips rendered from the `suggestions` array in the `done` SSE event
+- **Image attachments** — base64 thumbnails from vision tools displayed inline with click-to-expand lightbox
+- **Conversation sidebar** — collapsible 280px panel with search, resume, delete, and export for persisted conversations
+- **Dark theme** — CSS custom properties, markdown rendering via `marked.js`, syntax highlighting via `highlight.js`
+- **Mobile responsive** — sidebar collapses to overlay on screens < 768px
+
+### Embeddable Widget (`src/inspect_assist/static/widget.js`)
+
+Self-contained chat widget for embedding into external applications:
+
+- **SSE streaming** — same `ReadableStream` pattern as the main chat UI
+- **Tool indicators** — spinner + labels during tool execution
+- **Suggestion chips** — follow-up suggestions rendered as clickable buttons
+- Compact 300×340px floating panel with header, message area, and input
 
 ### LLM Abstraction (`src/inspect_assist/llm/`)
 

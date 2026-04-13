@@ -37,7 +37,7 @@ A standalone FastAPI service that:
 - **Production RAG pipeline** — two-tier chunking, hybrid search (semantic + BM25 via RRF), cross-encoder reranking, parent document retrieval, semantic caching
 - **Flexible LLM backend** — abstraction layer supports Azure OpenAI, OpenAI, Ollama, and Anthropic Claude with smart routing
 - **SQLite persistence** — conversations + user feedback stored in aiosqlite; ChromaDB for vector embeddings
-- **API-first** — temporary dev chat UI; designed to embed into the main inspection GUI
+- **API-first** — full-featured chat UI with streaming; designed to embed into the main inspection GUI
 
 ## Current Stack
 
@@ -55,6 +55,5 @@ A standalone FastAPI service that:
 
 Phase 1 (complete): Standalone service with labeled image dataset + knowledge base
 Phase 2 (complete): RAG pipeline — two-tier chunking, ChromaDB vectors, hybrid search (BM25 + semantic via RRF), cross-encoder reranking, parent document retrieval, contextual retrieval, HyDE, semantic caching
-Phase 3 (complete): Multi-provider LLM support (Azure OpenAI, OpenAI, Ollama, Anthropic) + smart routing + SQLite persistence + user feedback + RAG evaluation framework
-Phase 4: Connect to coworker’s inspection system via API adapters (recipes, results, logs)
+Phase 3 (complete): Multi-provider LLM support (Azure OpenAI, OpenAI, Ollama, Anthropic) + smart routing + SQLite persistence + user feedback + RAG evaluation frameworkPhase 3.5 (complete): Chat UI enhancements — SSE streaming, tool activity indicators, follow-up suggestion chips, image attachment lightbox, conversation history sidebar; embeddable widget upgraded with streaming + tool indicators + suggestionsPhase 4: Connect to coworker’s inspection system via API adapters (recipes, results, logs)
 Phase 5: Deeper reasoning — trend analysis, adaptive suggestions, GUI widget embedding

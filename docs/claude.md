@@ -1,6 +1,6 @@
 # InspectAssist — Claude Context & Progress Log
 
-> Last updated: 2026-04-02
+> Last updated: 2026-07-22
 
 This file provides context for Claude (or any LLM assistant) working on this codebase, and tracks implementation progress.
 
@@ -14,7 +14,7 @@ InspectAssist is a **tool-augmented LLM assistant** for industrial thermal seal 
 - Sidecar companion — reads system data, never controls it
 - Tool-grounded — LLM always calls real functions, never fabricates data
 - RAG approach — no model training; foundation models + context injection
-- API-first — designed for embedding, dev chat UI is temporary
+- API-first — designed for embedding, chat UI is full-featured with streaming
 
 ---
 
@@ -41,11 +41,11 @@ InspectAssist is a **tool-augmented LLM assistant** for industrial thermal seal 
 │   │   ├── models.py            # Pydantic request/response models
 │   │   └── routes.py            # 15 endpoints (chat, stream, models, conversations, search, export)
 │   ├── templates/
-│   │   ├── chat.html            # Dev chat UI (dark theme, markdown rendering)
+│   │   ├── chat.html            # Chat UI — SSE streaming, tool indicators, suggestions, image lightbox, conversation sidebar
 │   │   └── widget_demo.html     # Widget embedding demo
 │   └── static/
 │       ├── style.css
-│       └── widget.js
+│       └── widget.js            # Embeddable widget — SSE streaming, tool indicators, suggestion chips
 ├── knowledge/                   # Domain knowledge base
 │   ├── concepts/                # thermal-seal-inspection, classification-labeling
 │   ├── parameters/              # thresholds
@@ -62,6 +62,8 @@ InspectAssist is a **tool-augmented LLM assistant** for industrial thermal seal 
 ├── tests/test_storage.py        # 17 unit tests (serialization, persistence)
 ├── tests/test_orchestrator.py   # 17 unit tests (chat, tools, suggestions, streaming)
 ├── tests/test_routes.py         # 21 unit tests (all API endpoints)
+├── tests/test_cache.py          # 12 unit tests (semantic cache)
+├── tests/test_vectorstore.py    # 11 unit tests (ChromaDB wrapper)
 ├── docs/
 │   ├── brief.md                 # Project brief
 │   ├── architecture.md          # Full architecture doc
@@ -184,13 +186,29 @@ docker compose up
 
 **Files changed:** test_storage.py (new), test_orchestrator.py (new), test_routes.py (new), routes.py, orchestrator.py, app.py, __main__.py, config.py, Dockerfile, docker-compose.yml, knowledge/ (4 new articles), docs/integration-guide.md (new)
 
+### Sprint 6 — Chat UI Enhancements ✅
+
+| ID | Feature | Status |
+|----|---------|--------|
+| — | SSE streaming in chat UI (real-time token rendering via `ReadableStream`) | ✅ Done |
+| — | Tool activity indicators (spinner + human-readable labels for all 11 tools) | ✅ Done |
+| — | Follow-up suggestion chips (clickable, from `done` SSE event) | ✅ Done |
+| — | Image attachment rendering with click-to-expand lightbox | ✅ Done |
+| — | Conversation history sidebar (search, resume, delete, export) | ✅ Done |
+| — | Mobile responsive layout (sidebar collapses < 768px) | ✅ Done |
+| — | Widget SSE streaming + tool indicators + suggestion chips | ✅ Done |
+
+**Files changed:** chat.html (rewritten), widget.js (streaming + tool indicators + suggestions)
+
 ---
 
 ## Current Stats
 
-- **9 tools** registered (3 dataset, 4 vision, 2 knowledge)
+- **11 tools** registered (3 dataset, 4 vision, 4 knowledge)
 - **15 API endpoints**
-- **74 tests** all passing
-- **3 LLM providers** supported (Azure OpenAI, OpenAI, Ollama)
+- **78 tests** all passing
+- **4 LLM providers** supported (Azure OpenAI, OpenAI, Ollama, Anthropic)
+- **Chat UI**: SSE streaming, tool indicators, follow-up suggestions, image lightbox, conversation sidebar
+- **Embeddable widget**: SSE streaming, tool indicators, suggestion chips
 - **Tech stack**: Python 3.13, FastAPI, OpenAI SDK, Pillow, aiosqlite, structlog
-- **Semantic search**: OpenAI embeddings with cosine similarity (cached to JSON)
+- **Semantic search**: OpenAI embeddings + ChromaDB + BM25 hybrid search with cross-encoder reranking

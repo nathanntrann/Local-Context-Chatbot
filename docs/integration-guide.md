@@ -81,9 +81,9 @@ for line in resp.iter_lines():
             if event["type"] == "token":
                 print(event["content"], end="", flush=True)  # stream to UI
             elif event["type"] == "tool_start":
-                print(f"\n[Calling {event['tool']}...]")
+                print(f"\n[Calling {event['name']}...]")
             elif event["type"] == "tool_result":
-                pass  # tool output available in event["result"]
+                pass  # tool finished; name available in event["name"]
             elif event["type"] == "done":
                 print(f"\nConversation: {event['conversation_id']}")
 ```
@@ -229,11 +229,15 @@ python -m inspect_assist batch --output results/audit.json
 
 3. **Display `data_locality`** prominently so operators know if data is going to the cloud.
 
-4. **Show `suggestions`** as clickable buttons in your chat panel — they guide users to useful next steps.
+5. **Show `suggestions`** as clickable buttons in your chat panel — they guide users to useful next steps. The built-in chat UI and widget both render these as clickable chips.
 
-5. **Handle `attachments`** — these are base64-encoded image thumbnails returned by vision tools. Display them inline in the chat.
+6. **Handle `attachments`** — these are base64-encoded image thumbnails returned by vision tools. The built-in chat UI renders them inline with a click-to-expand lightbox.
 
-6. **Rate limiting** is set to 30 requests/min on chat endpoints by default. Adjust `RATE_LIMIT_PER_MINUTE` in `.env`.
+7. **Tool transparency** — during streaming, `tool_start` and `tool_result` events include the tool `name` field. Map these to human-readable labels (e.g. `search_knowledge` → "Searching knowledge base…") for user feedback.
+
+8. **Conversation sidebar** — the built-in chat UI includes a searchable conversation history sidebar. If building your own UI, use the `/api/v1/conversations` and `/api/v1/conversations/search` endpoints.
+
+9. **Rate limiting** is set to 30 requests/min on chat endpoints by default. Adjust `RATE_LIMIT_PER_MINUTE` in `.env`.
 
 ## Environment Variables
 

@@ -184,6 +184,45 @@
       40% { opacity: 1; }
     }
 
+    .ia-tool-status {
+      color: #6c8aff;
+      font-style: italic;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+    }
+    .ia-tool-spinner {
+      width: 10px; height: 10px;
+      border: 1.5px solid #2a2d3e;
+      border-top-color: #6c8aff;
+      border-radius: 50%;
+      animation: ia-spin 0.8s linear infinite;
+    }
+    @keyframes ia-spin { to { transform: rotate(360deg); } }
+
+    .ia-suggestions-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 4px 8px 0;
+    }
+    .ia-suggestions-bar button {
+      background: #1a1d27;
+      border: 1px solid #2a2d3e;
+      color: #8b8fa4;
+      padding: 3px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+      text-align: left;
+    }
+    .ia-suggestions-bar button:hover {
+      border-color: #4a4d64;
+      color: #d4d6e0;
+    }
+
     #ia-widget-input-area {
       border-top: 1px solid #2a2d3e;
       padding: 6px;
@@ -458,6 +497,51 @@
       .replace(/\n/g, "<br>");
   }
 
+  // Tool name → human label
+  const TOOL_LABELS = {
+    search_knowledge: "Searching knowledge base",
+    search_knowledge_filtered: "Searching knowledge base",
+    get_article_section: "Reading article",
+    explain_concept: "Looking up concept",
+    analyze_image: "Analyzing image",
+    compare_images: "Comparing images",
+    find_suspicious_labels: "Auditing labels",
+    generate_audit_report: "Generating audit report",
+    get_dataset_summary: "Loading dataset summary",
+    get_dataset_statistics: "Calculating statistics",
+    get_sample_images: "Fetching sample images",
+  };
+
+  function updateThinkingTool(toolName) {
+    const el = document.getElementById("ia-thinking");
+    if (!el) return;
+    const label = TOOL_LABELS[toolName] || toolName;
+    el.className = "ia-tool-status";
+    el.innerHTML = '<div class="ia-tool-spinner"></div>' + label + "...";
+    const msgs = document.getElementById("ia-widget-messages");
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function addWidgetSuggestions(suggestions) {
+    if (!suggestions || !suggestions.length) return;
+    const msgs = document.getElementById("ia-widget-messages");
+    const bar = document.createElement("div");
+    bar.className = "ia-suggestions-bar";
+    suggestions.forEach(function (s) {
+      const btn = document.createElement("button");
+      btn.textContent = s;
+      btn.onclick = function () {
+        document
+          .querySelectorAll(".ia-suggestions-bar")
+          .forEach(function (b) { b.remove(); });
+        window.__ia_send(s);
+      };
+      bar.appendChild(btn);
+    });
+    msgs.appendChild(bar);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
   async function handleSend() {
     const input = document.getElementById("ia-widget-input");
     const sendBtn = document.getElementById("ia-widget-send");
@@ -468,11 +552,16 @@
     input.style.height = "auto";
     sendBtn.disabled = true;
 
+    // Remove old suggestion bars
+    document
+      .querySelectorAll(".ia-suggestions-bar")
+      .forEach(function (b) { b.remove(); });
+
     addMsg("user", msg);
     addThinking();
 
     try {
-      const res = await fetch(BASE_URL + "/api/v1/chat", {
+      const res = await fetch(BASE_URL + "/api/v1/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -481,17 +570,89 @@
         }),
       });
 
-      removeThinking();
-
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        removeThinking();
+        const err = await res.json().catch(function () { return {}; });
         addMsg("error", "Error: " + (err.detail || res.statusText));
         return;
       }
 
-      const data = await res.json();
-      conversationId = data.conversation_id;
-      addMsg("assistant", data.response);
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var accumulated = "";
+      var msgDiv = null;
+      var buffer = "";
+      var renderTimer = null;
+      var msgs = document.getElementById("ia-widget-messages");
+
+      function renderNow() {
+        if (msgDiv && accumulated) {
+          msgDiv.innerHTML = renderMd(accumulated);
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+      }
+
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+
+        buffer += decoder.decode(result.value, { stream: true });
+        var lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (line.indexOf("data: ") !== 0) continue;
+          var event;
+          try { event = JSON.parse(line.slice(6)); } catch (e) { continue; }
+
+          if (event.type === "token") {
+            if (!msgDiv) {
+              removeThinking();
+              var welcome = document.getElementById("ia-welcome-msg");
+              if (welcome) welcome.style.display = "none";
+              msgDiv = document.createElement("div");
+              msgDiv.className = "ia-msg assistant";
+              msgs.appendChild(msgDiv);
+            }
+            accumulated += event.content;
+            if (!renderTimer) {
+              renderTimer = setTimeout(function () {
+                renderNow();
+                renderTimer = null;
+              }, 80);
+            }
+
+          } else if (event.type === "tool_start") {
+            updateThinkingTool(event.name);
+
+          } else if (event.type === "tool_result") {
+            var thinkEl = document.getElementById("ia-thinking");
+            if (thinkEl) {
+              thinkEl.className = "ia-thinking";
+              thinkEl.innerHTML =
+                'Thinking<div class="dots"><span>.</span><span>.</span><span>.</span></div>';
+            }
+
+          } else if (event.type === "done") {
+            removeThinking();
+            conversationId = event.conversation_id;
+
+            if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+            if (msgDiv && accumulated) {
+              renderNow();
+            } else if (!msgDiv && accumulated) {
+              msgDiv = addMsg("assistant", accumulated);
+            }
+
+            addWidgetSuggestions(event.suggestions);
+          }
+        }
+      }
+
+      if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+      if (msgDiv && accumulated) renderNow();
+
     } catch (err) {
       removeThinking();
       addMsg("error", "Connection error: " + err.message);
